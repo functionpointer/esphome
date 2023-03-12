@@ -12,19 +12,21 @@ namespace esphome {
 namespace pylontech {
 
 #ifndef NUM_BATTERIES
-#define NUM_BATTERIES 6
+#define NUM_BATTERIES 16
 #endif
 
 #ifndef MAX_SENSOR_INDEX
 #define MAX_SENSOR_INDEX 11
 #endif
 
+#define NUM_BUFFERS 20
+
 #define MIN_BINARY_SENSOR_INDEX 7
 #define MAX_BINARY_SENSOR_INDEX 16
 
 class PylontechComponent : public PollingComponent, public uart::UARTDevice {
  public:
-  void set_sensor(sensor::Sensor *sensor, int battery, int index) { this->sensors_[battery][index] = sensor; }
+  void set_sensor(sensor::Sensor *sensor, int battery, int index) { this->sensors_[battery-1][index] = sensor; }
 #ifdef USE_BINARY_SENSOR
 #endif
 
@@ -39,16 +41,17 @@ class PylontechComponent : public PollingComponent, public uart::UARTDevice {
   float get_setup_priority() const override;
 
  protected:
-  void process_line_();
-  void schedule_reboot_();
-  bool buffer_starts_with_(const std::string &prefix);
-  bool buffer_starts_with_(const char *prefix);
-  int num_sensors_missing_();
+  void process_line_(std::string &buffer);
 
-  sensor::Sensor *sensors_[NUM_BATTERIES][MAX_SENSOR_INDEX] = {{nullptr}};
+  sensor::Sensor *sensors_[NUM_BATTERIES][MAX_SENSOR_INDEX+1] = {{nullptr}};
 #ifdef USE_BINARY_SENSOR
   //binary_sensor::BinarySensor *binary_sensors{nullptr};
 #endif
+
+  //ring buffer
+  std::string buffer_[NUM_BUFFERS];
+  int buffer_index_write_ = 0;
+  int buffer_index_read_ = 0;
 };
 
 class PylontechBinaryComponent : public Component {
