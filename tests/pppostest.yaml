@@ -1,0 +1,5 @@
+rp2040:
+  board: rpipicow
+
+esphome:
+  name: pppostest
