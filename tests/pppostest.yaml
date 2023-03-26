@@ -1,5 +1,15 @@
-rp2040:
-  board: rpipicow
-
 esphome:
   name: pppostest
+
+rp2040:
+  board: rpipicow
+  framework:
+    platform_version: https://github.com/maxgerhardt/platform-raspberrypi.git
+
+wifi:
+  ssid: MyHomeNetwork
+  password: VerySafePassword
+
+time:
+  - platform: sntp
+    id: sntp_time
