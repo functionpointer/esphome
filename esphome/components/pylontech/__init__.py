@@ -29,7 +29,6 @@ PYLONTECH_COMPONENT_SCHEMA = cv.Schema(
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema({cv.GenerateID(): cv.declare_id(PylontechComponent)})
-    .extend(cv.polling_component_schema("16s"))
     .extend(uart.UART_DEVICE_SCHEMA)
 )
 
