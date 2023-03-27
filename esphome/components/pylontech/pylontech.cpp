@@ -15,11 +15,16 @@ void PylontechComponent::dump_config() {
   if (this->is_failed()) {
     ESP_LOGE(TAG, "Connection with pylontech failed!");
   }
+
   for(int batid=0;batid<NUM_BATTERIES;batid++) {
+    bool any = false;
     for(int i=0;i<=MAX_SENSOR_INDEX;i++) {
       if(this->sensors_[batid][i]!=nullptr) {
-        ESP_LOGCONFIG("  ", "BAT%d", batid+1);
-        LOG_SENSOR(": ", "", this->sensors_[batid][i]);
+        if(!any) {
+          ESP_LOGCONFIG(TAG, " Battery %d", batid+1);
+        }
+        any = true;
+        LOG_SENSOR("  ", "", this->sensors_[batid][i]);
       }
     }
   }
