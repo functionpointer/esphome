@@ -15,11 +15,20 @@ void PylontechComponent::dump_config() {
   if (this->is_failed()) {
     ESP_LOGE(TAG, "Connection with pylontech failed!");
   }
+  for(int batid=0;batid<NUM_BATTERIES;batid++) {
+    for(int i=0;i<=MAX_SENSOR_INDEX;i++) {
+      if(this->sensors_[batid][i]!=nullptr) {
+        ESP_LOGCONFIG("  ", "BAT%d", batid+1);
+        LOG_SENSOR(": ", "", this->sensors_[batid][i]);
+      }
+    }
+  }
+
   LOG_UPDATE_INTERVAL(this);
 }
 
 void PylontechComponent::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up hydreon_rgxx...");
+  ESP_LOGCONFIG(TAG, "Setting up pylontech...");
   while (this->available() != 0) {
     this->read();
   }
@@ -57,7 +66,7 @@ void PylontechComponent::process_line_(std::string &buffer) {
   if(end_batnum >2) {
     return;
   }
-  int bat_num = parse_number<int>(buffer.substr(0, end_batnum)).value_or(-1);
+  int const bat_num = parse_number<int>(buffer.substr(0, end_batnum)).value_or(-1);
   if(bat_num<=0 || bat_num>NUM_BATTERIES) {
     return;
   }
@@ -79,7 +88,7 @@ void PylontechComponent::process_line_(std::string &buffer) {
     auto subs = buffer.substr(current_index, end-current_index);
     ESP_LOGV(TAG, "sensor %d value %s", i, subs.c_str());
     if(this->sensors_[bat_num-1][i]!= nullptr) {
-      int parsed_value = parse_number<int>(subs).value_or(-1);
+      int const parsed_value = parse_number<int>(subs).value_or(-1);
       if(parsed_value==-1) {
         ESP_LOGW(TAG, "failed to parse number \"%s\"", subs.c_str());
         continue;

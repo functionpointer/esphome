@@ -74,6 +74,9 @@ select:
 pipsolar:
   id: inverter0
 
+pylontech:
+  id: pylontech0
+
 sx1509:
   - id: sx1509_hub
     address: 0x3E
@@ -87,6 +90,15 @@ dac7678:
   internal_reference: true
 
 sensor:
+  - platform: pylontech
+    pylontech_id: pylontech0
+    battery: 1
+    voltage:
+      id: pyl1_voltage
+    current:
+      id: pyl1_current
+    coulomb:
+      id: pyl1_soc
   - platform: homeassistant
     entity_id: sensor.hello_world
     id: ha_hello_world
