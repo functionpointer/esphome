@@ -2,21 +2,45 @@ esphome:
   name: pppostest
 
 rp2040:
-  board: rpipicow
+  board: rpipico
   framework:
     platform_version: https://github.com/maxgerhardt/platform-raspberrypi.git
 
 uart:
-  tx_pin: GPIO22
-  rx_pin: GPIO23
-  baud_rate: 115200
+#  - id: uart_dbg
+#    tx_pin: GPIO0
+#    rx_pin: GPIO1
+#    baud_rate: 115200
+  - id: uart_ppp
+    tx_pin: GPIO4
+    rx_pin: GPIO5
+    baud_rate: 115200
 
 pppos:
+  id: ppp0
+  uart_id: uart_ppp
 
-#wifi:
-#  ssid: "bla"
-#  password: "asdfasdf"
 
-time:
-  - platform: sntp
-    id: sntp_time
+logger:
+  hardware_uart: UART0
+  level: VERBOSE
+  logs:
+    ads1115: INFO
+    sensor: INFO
+    pipsolar: INFO
+
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO25
+      mode: output
+    id: greenLED
+
+interval:
+  - interval: 500ms
+    then:
+      - switch.toggle: greenLED
+
+#time:
+#  - platform: sntp
+#    id: sntp_time

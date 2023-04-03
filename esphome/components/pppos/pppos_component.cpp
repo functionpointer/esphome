@@ -16,6 +16,7 @@ void PPPoSComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up PPPoS...");
 
   this->ppp_control_block = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
+  ESP_LOGCONFIG(TAG, "pppos_create");
   //we are the PPP client
   ppp_set_default(this->ppp_control_block);
   ppp_set_usepeerdns(this->ppp_control_block, 1);

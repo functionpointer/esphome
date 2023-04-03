@@ -19,7 +19,7 @@ void arch_restart() {
     continue;
   }
 }
-void arch_init() { watchdog_enable(0x7fffff, false); }
+void arch_init() { watchdog_enable(0x7fffff, true); }
 void IRAM_ATTR HOT arch_feed_wdt() { watchdog_update(); }
 
 uint8_t progmem_read_byte(const uint8_t *addr) {
