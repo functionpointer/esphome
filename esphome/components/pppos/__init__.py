@@ -51,3 +51,6 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+
+    cg.add_build_flag("-DPPP_SUPPORT=1") # can't use add_define, as this needs to be evaluated before lwipopts.h
+    cg.add_build_flag("-Dsys_jiffies=millis") # ppp uses this for randomness

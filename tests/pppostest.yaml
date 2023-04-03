@@ -6,9 +6,16 @@ rp2040:
   framework:
     platform_version: https://github.com/maxgerhardt/platform-raspberrypi.git
 
-wifi:
-  ssid: MyHomeNetwork
-  password: VerySafePassword
+uart:
+  tx_pin: GPIO22
+  rx_pin: GPIO23
+  baud_rate: 115200
+
+pppos:
+
+#wifi:
+#  ssid: "bla"
+#  password: "asdfasdf"
 
 time:
   - platform: sntp
