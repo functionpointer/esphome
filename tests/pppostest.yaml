@@ -5,6 +5,8 @@ rp2040:
   board: rpipico
   framework:
     platform_version: https://github.com/maxgerhardt/platform-raspberrypi.git
+    source: https://github.com/earlephilhower/arduino-pico/releases/download/3.1.1/rp2040-3.1.1.zip
+    version: 3.1.1
 
 uart:
 #  - id: uart_dbg

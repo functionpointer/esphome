@@ -3,6 +3,8 @@
 #include "esphome/core/util.h"
 #include "esphome/core/application.h"
 
+#include <pico/cyw43_arch.h>
+
 namespace esphome {
 namespace pppos {
 
@@ -14,6 +16,24 @@ PPPoSComponent::PPPoSComponent() { global_pppos_component = this; }
 
 void PPPoSComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up PPPoS...");
+
+#ifdef USE_RP2040
+  /*
+  if (!async_context_poll_init_with_defaults(&this->async_context_poll_)) {
+    ESP_LOGE(TAG, "async_context_init_with_defaults has failed");
+    this->mark_failed();
+    return;
+  }
+  this->async_context = &this->async_context_poll_.core;
+  if(!this->async_context) {
+    ESP_LOGE(TAG, "no async context!");
+    this->mark_failed();
+    return;
+  }
+  lwip_nosys_init(this->async_context);*/
+
+  cyw43_arch_init();
+#endif
 
   this->ppp_control_block = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
   ESP_LOGCONFIG(TAG, "pppos_create");

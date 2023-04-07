@@ -55,6 +55,10 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   uint32_t connect_begin_;
   ppp_pcb *ppp_control_block;
   struct netif ppp_netif_;
+/*#ifdef USE_RP2040
+  static async_context_t *async_context;
+  static async_context_poll_t async_context_poll_;
+#endif*/
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
