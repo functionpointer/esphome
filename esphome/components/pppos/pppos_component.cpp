@@ -4,6 +4,8 @@
 #include "esphome/core/application.h"
 
 #include <pico/cyw43_arch.h>
+//#include "lwip/init.h"
+
 
 namespace esphome {
 namespace pppos {
@@ -31,21 +33,30 @@ void PPPoSComponent::setup() {
     return;
   }
   lwip_nosys_init(this->async_context);*/
-
+  //lwip_init();
   cyw43_arch_init();
 #endif
 
   this->ppp_control_block = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
-  ESP_LOGCONFIG(TAG, "pppos_create");
+  if(this->ppp_control_block == nullptr) {
+    ESP_LOGE(TAG, "failed to create ppp control block");
+    this->mark_failed();
+    return;
+  }
   //we are the PPP client
   ppp_set_default(this->ppp_control_block);
   ppp_set_usepeerdns(this->ppp_control_block, 1);
-  ppp_connect(this->ppp_control_block, 0);
+  if(ppp_connect(this->ppp_control_block, 0) != ERR_OK) {
+    ESP_LOGE(TAG, "pppos couldnt start connecting");
+    this->mark_failed();
+    return;
+  }
   this->state_ = PPPoSComponentState::CONNECTING;
+  ESP_LOGI(TAG, "pppos is connecting");
 }
 
 void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
-  struct netif *pppif = &global_pppos_component->ppp_netif_;
+  struct netif *pppif = ppp_netif(pcb);
 
   switch(err_code) {
     case PPPERR_NONE:
@@ -134,12 +145,19 @@ void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
 }
 
 uint32_t PPPoSComponent::output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx) {
+  ESP_LOGI(TAG, "writing %d bytes", len);
   global_pppos_component->write_array((const uint8_t*)data, len);
   return len;
 }
 
 void PPPoSComponent::loop() {
+  sys_check_timeouts();
 
+  static uint32_t nextmsg = 0;
+  if(nextmsg<millis()) {
+    ESP_LOGI(TAG, "state is %d", this->state_);
+    nextmsg = millis()+2000;
+  }
 }
 
 void PPPoSComponent::dump_config() {
