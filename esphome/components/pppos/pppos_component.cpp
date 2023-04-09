@@ -46,7 +46,8 @@ void PPPoSComponent::setup() {
   //we are the PPP client
   ppp_set_default(this->ppp_control_block);
   ppp_set_usepeerdns(this->ppp_control_block, 1);
-  if(ppp_connect(this->ppp_control_block, 0) != ERR_OK) {
+
+  if(ppp_connect(this->ppp_control_block, 10) != ERR_OK) {
     ESP_LOGE(TAG, "pppos couldnt start connecting");
     this->mark_failed();
     return;
@@ -145,8 +146,9 @@ void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
 }
 
 uint32_t PPPoSComponent::output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx) {
-  ESP_LOGI(TAG, "writing %d bytes", len);
-  global_pppos_component->write_array((const uint8_t*)data, len);
+  for(int i=0;i<len;i++) {
+    global_pppos_component->tx_queue_.push(((const uint8_t* )data)[len]);
+  }
   return len;
 }
 
@@ -158,6 +160,15 @@ void PPPoSComponent::loop() {
     ESP_LOGI(TAG, "state is %d", this->state_);
     nextmsg = millis()+2000;
   }
+
+  if(!this->tx_queue_.empty()) {
+    ESP_LOGV(TAG, "sending %d bytes", this->tx_queue_.size());
+    while(!this->tx_queue_.empty()) {
+        this->write(this->tx_queue_.front());
+        this->tx_queue_.pop();
+    }
+  }
+
 }
 
 void PPPoSComponent::dump_config() {

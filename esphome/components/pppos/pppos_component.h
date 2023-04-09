@@ -11,6 +11,8 @@
 #include "netif/ppp/pppapi.h"
 #include "netif/ppp/pppos.h"
 
+#include <queue>
+
 
 namespace esphome {
 namespace pppos {
@@ -24,6 +26,7 @@ struct ManualIP {
 };
 
 enum class PPPoSComponentState {
+
   STOPPED,
   CONNECTING,
   CONNECTED,
@@ -55,6 +58,7 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   uint32_t connect_begin_;
   ppp_pcb *ppp_control_block = nullptr;
   struct netif ppp_netif_;
+  std::queue<uint8_t> tx_queue_;
 /*#ifdef USE_RP2040
   static async_context_t *async_context;
   static async_context_poll_t async_context_poll_;
