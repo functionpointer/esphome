@@ -37,17 +37,17 @@ void PPPoSComponent::setup() {
   cyw43_arch_init();
 #endif
 
-  this->ppp_control_block = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
-  if(this->ppp_control_block == nullptr) {
+  this->ppp_control_block_ = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
+  if(this->ppp_control_block_ == nullptr) {
     ESP_LOGE(TAG, "failed to create ppp control block");
     this->mark_failed();
     return;
   }
   //we are the PPP client
-  ppp_set_default(this->ppp_control_block);
-  ppp_set_usepeerdns(this->ppp_control_block, 1);
+  ppp_set_default(this->ppp_control_block_);
+  ppp_set_usepeerdns(this->ppp_control_block_, 1);
 
-  if(ppp_connect(this->ppp_control_block, 10) != ERR_OK) {
+  if(ppp_connect(this->ppp_control_block_, 10) != ERR_OK) {
     ESP_LOGE(TAG, "pppos couldnt start connecting");
     this->mark_failed();
     return;
@@ -167,6 +167,15 @@ void PPPoSComponent::loop() {
         this->write(this->tx_queue_.front());
         this->tx_queue_.pop();
     }
+  }
+
+  if(this->available() > 0) {
+    size_t size = this->available();
+    uint8_t data[size];
+    if(!this->read_array(data, size)) {
+        ESP_LOGE(TAG, "error read_array");
+    }
+    pppos_input(this->ppp_control_block_, data, size);
   }
 
 }

@@ -56,7 +56,7 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   bool connected_{false};
   PPPoSComponentState state_{PPPoSComponentState::STOPPED};
   uint32_t connect_begin_;
-  ppp_pcb *ppp_control_block = nullptr;
+  ppp_pcb *ppp_control_block_ = nullptr;
   struct netif ppp_netif_;
   std::queue<uint8_t> tx_queue_;
 /*#ifdef USE_RP2040

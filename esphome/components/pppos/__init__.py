@@ -51,6 +51,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+    await uart.register_uart_device(var, config)
 
     cg.add_build_flag("-DPPP_SUPPORT=1") # can't use add_define, as this needs to be evaluated before lwipopts.h
     cg.add_build_flag("-DPPPOS_SUPPORT=1")
