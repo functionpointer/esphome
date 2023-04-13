@@ -11,18 +11,10 @@
 namespace esphome {
 namespace pylontech {
 
-#ifndef NUM_BATTERIES
-#define NUM_BATTERIES 16
-#endif
-
-#ifndef MAX_SENSOR_INDEX
-#define MAX_SENSOR_INDEX 11
-#endif
-
-#define NUM_BUFFERS 20
-
-#define MIN_BINARY_SENSOR_INDEX 7
-#define MAX_BINARY_SENSOR_INDEX 16
+static const uint8_t NUM_BATTERIES = 16;
+static const uint8_t MAX_SENSOR_INDEX = 11;
+static const uint8_t NUM_BUFFERS = 20;
+static const uint8_t MAX_BINARY_SENSOR_INDEX = 16;
 
 class PylontechComponent : public PollingComponent, public uart::UARTDevice {
  public:
