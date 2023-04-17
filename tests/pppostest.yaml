@@ -39,7 +39,7 @@ switch:
     id: greenLED
 
 interval:
-  - interval: 500ms
+  - interval: 10s
     then:
       - switch.toggle: greenLED
 

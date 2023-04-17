@@ -146,9 +146,11 @@ void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
 }
 
 uint32_t PPPoSComponent::output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx) {
-  for(int i=0;i<len;i++) {
+  ESP_LOGV(TAG, "cb: sending %d bytes", len);
+  /*for(int i=0;i<len;i++) {
     global_pppos_component->tx_queue_.push(((const uint8_t* )data)[len]);
-  }
+  }*/
+  global_pppos_component->write_array((const uint8_t*)data, len);
   return len;
 }
 
@@ -175,6 +177,7 @@ void PPPoSComponent::loop() {
     if(!this->read_array(data, size)) {
         ESP_LOGE(TAG, "error read_array");
     }
+    ESP_LOGV(TAG, "receiving %d bytes", size);
     pppos_input(this->ppp_control_block_, data, size);
   }
 
