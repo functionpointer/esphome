@@ -53,6 +53,7 @@ async def to_code(config):
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
+    cg.add_define("USE_PPPOS")
     cg.add_build_flag("-DPPP_SUPPORT=1") # can't use add_define, as this needs to be evaluated before lwipopts.h
     cg.add_build_flag("-DPPPOS_SUPPORT=1")
     cg.add_build_flag("-Dsys_jiffies=millis") # ppp uses this for randomness

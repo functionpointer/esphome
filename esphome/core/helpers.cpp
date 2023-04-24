@@ -28,7 +28,9 @@
 #include <hardware/structs/rosc.h>
 #include <hardware/sync.h>
 #endif
-
+#if defined(USE_PPPOS)
+#include "pico/unique_id.h"
+#endif
 #ifdef USE_ESP32_IGNORE_EFUSE_MAC_CRC
 #include "esp_efuse.h"
 #include "esp_efuse_table.h"
@@ -435,6 +437,12 @@ void HighFrequencyLoopRequester::stop() {
 bool HighFrequencyLoopRequester::is_high_frequency() { return num_requests > 0; }
 
 void get_mac_address_raw(uint8_t *mac) {  // NOLINT(readability-non-const-parameter)
+#if defined(USE_PPPOS)
+  // PPP does not use MAC Addresses
+  for(int i=0;i<6;i++)
+    mac[i] = 0;
+  //still let the other stuff run
+#endif
 #if defined(USE_ESP32)
 #if defined(USE_ESP32_IGNORE_EFUSE_MAC_CRC)
   // On some devices, the MAC address that is burnt into EFuse does not

@@ -9,10 +9,19 @@
 #include "esphome/components/ethernet/ethernet_component.h"
 #endif
 
+#ifdef USE_PPPOS
+#include "esphome/components/pppos/pppos_component.h"
+#endif
+
 namespace esphome {
 namespace network {
 
 bool is_connected() {
+#ifdef USE_PPPOS
+  if (pppos::global_pppos_component != nullptr && pppos::global_pppos_component->is_connected())
+    return true;
+#endif
+
 #ifdef USE_ETHERNET
   if (ethernet::global_eth_component != nullptr && ethernet::global_eth_component->is_connected())
     return true;
@@ -27,6 +36,11 @@ bool is_connected() {
 }
 
 network::IPAddress get_ip_address() {
+#ifdef USE_PPPOS
+  if (pppos::global_pppos_component != nullptr) {
+    return pppos::global_pppos_component->get_ip_address();
+  }
+#endif
 #ifdef USE_ETHERNET
   if (ethernet::global_eth_component != nullptr)
     return ethernet::global_eth_component->get_ip_address();
@@ -39,6 +53,11 @@ network::IPAddress get_ip_address() {
 }
 
 std::string get_use_address() {
+#ifdef USE_PPPOS
+  if (pppos::global_pppos_component != nullptr) {
+    return pppos::global_pppos_component->get_use_address();
+  }
+#endif
 #ifdef USE_ETHERNET
   if (ethernet::global_eth_component != nullptr)
     return ethernet::global_eth_component->get_use_address();

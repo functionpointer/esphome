@@ -196,6 +196,14 @@ network::IPAddress PPPoSComponent::get_ip_address() {
   return network::IPAddress(this->ppp_netif_.ip_addr.addr);
 }
 
+void PPPoSComponent::set_use_address(const std::string &use_address) { this->use_address_ = use_address; }
+
+std::string PPPoSComponent::get_use_address() const {
+  if (this->use_address_.empty()) {
+    return App.get_name() + ".local";
+  }
+  return this->use_address_;
+}
 
 bool PPPoSComponent::is_connected() {
   return this->state_ == PPPoSComponentState::CONNECTED;

@@ -45,12 +45,15 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   void set_manual_ip(const ManualIP &manual_ip);
 
   network::IPAddress get_ip_address();
+  std::string get_use_address() const;
+  void set_use_address(const std::string &use_address);
 
  protected:
   static void status_callback(ppp_pcb *pcb, int err_code, void *ctx);
   static uint32_t output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx);
 
   optional<ManualIP> manual_ip_{};
+  std::string use_address_;
 
   bool started_{false};
   bool connected_{false};

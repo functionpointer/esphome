@@ -37,12 +37,17 @@ switch:
       number: GPIO25
       mode: output
     id: greenLED
+    name: pppostest_onboard_led
+    internal: false
 
-interval:
-  - interval: 10s
-    then:
-      - switch.toggle: greenLED
+api:
+
 
 #time:
 #  - platform: sntp
 #    id: sntp_time
+#    on_time:
+#      - seconds: 0
+#        minutes: /5
+#        then:
+#          - switch.toggle: greenLED
