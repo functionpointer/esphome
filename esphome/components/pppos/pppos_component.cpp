@@ -3,9 +3,9 @@
 #include "esphome/core/util.h"
 #include "esphome/core/application.h"
 
+#ifdef USE_RP2040
 #include <pico/cyw43_arch.h>
-//#include "lwip/init.h"
-
+#endif
 
 namespace esphome {
 namespace pppos {
@@ -18,6 +18,11 @@ PPPoSComponent::PPPoSComponent() { global_pppos_component = this; }
 
 void PPPoSComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up PPPoS...");
+
+#ifdef PPPOS_USE_CDC
+  this->hw_serial_ = &Serial;
+  Serial.begin(this->baud_rate_);
+#endif
 
 #ifdef USE_RP2040
   /*
@@ -147,9 +152,6 @@ void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
 
 uint32_t PPPoSComponent::output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx) {
   ESP_LOGV(TAG, "cb: sending %d bytes", len);
-  /*for(int i=0;i<len;i++) {
-    global_pppos_component->tx_queue_.push(((const uint8_t* )data)[len]);
-  }*/
   global_pppos_component->write_array((const uint8_t*)data, len);
   return len;
 }
@@ -161,14 +163,6 @@ void PPPoSComponent::loop() {
   if(nextmsg<millis()) {
     ESP_LOGI(TAG, "state is %d", this->state_);
     nextmsg = millis()+2000;
-  }
-
-  if(!this->tx_queue_.empty()) {
-    ESP_LOGV(TAG, "sending %d bytes", this->tx_queue_.size());
-    while(!this->tx_queue_.empty()) {
-        this->write(this->tx_queue_.front());
-        this->tx_queue_.pop();
-    }
   }
 
   if(this->available() > 0) {

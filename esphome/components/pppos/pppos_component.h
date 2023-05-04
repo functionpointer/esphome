@@ -13,6 +13,15 @@
 
 #include <queue>
 
+#ifdef PPPOS_USE_CDC
+#ifdef USE_ARDUINO
+#ifdef USE_RP2040
+#include <HardwareSerial.h>
+#include <SerialUSB.h>
+#endif  // USE_RP2040
+#endif  // USE_ARDUINO
+#endif // PPPOS_USE_CDC
+
 
 namespace esphome {
 namespace pppos {
@@ -61,11 +70,16 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   uint32_t connect_begin_;
   ppp_pcb *ppp_control_block_ = nullptr;
   struct netif ppp_netif_;
-  std::queue<uint8_t> tx_queue_;
-/*#ifdef USE_RP2040
-  static async_context_t *async_context;
-  static async_context_poll_t async_context_poll_;
-#endif*/
+#ifdef PPPOS_USE_CDC
+  uint32_t baud_rate_;
+ public:
+  void set_baud_rate(uint32_t baud_rate);
+  uint32_t get_baud_rate() const { return baud_rate_; }
+ protected:
+#ifdef USE_ARDUINO
+  Stream *hw_serial_{nullptr};
+#endif
+#endif
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
