@@ -93,4 +93,4 @@ async def to_code(config):
     cg.add_build_flag("-DPPPOS_SUPPORT=1")
     cg.add_build_flag("-Dsys_jiffies=millis")  # ppp uses this for randomness
 
-    cg.add_library("lwip-ppp-esphome", "0.0.1")
+    cg.add_library("lwip-ppp-esphome", "0.0.2")

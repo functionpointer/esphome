@@ -20,7 +20,7 @@ uart:
 
 pppos:
   id: ppp0
-  uart_type: USB_CDC
+  uart_type: UART_COMPONENT
 
 
 logger:

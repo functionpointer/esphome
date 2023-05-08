@@ -39,7 +39,11 @@ void PPPoSComponent::setup() {
   }
   lwip_nosys_init(this->async_context);*/
   //lwip_init();
-  cyw43_arch_init();
+  if(cyw43_arch_init() != 0) {
+    ESP_LOGE(TAG, "failed to initialize lwip");
+    this->mark_failed();
+    return;
+  }
 #endif
 
   this->ppp_control_block_ = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
@@ -152,7 +156,7 @@ void PPPoSComponent::status_callback(ppp_pcb *pcb, int err_code, void *ctx) {
 
 uint32_t PPPoSComponent::output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx) {
   ESP_LOGV(TAG, "cb: sending %d bytes", len);
-  global_pppos_component->write_array((const uint8_t*)data, len);
+  global_pppos_component->uart_write_array((const uint8_t*)data, len);
   return len;
 }
 
@@ -165,26 +169,30 @@ void PPPoSComponent::loop() {
     nextmsg = millis()+2000;
   }
 
-  if(this->available() > 0) {
-    size_t size = this->available();
+  if(this->uart_available() > 0) {
+    size_t size = this->uart_available();
     uint8_t data[size];
-    if(!this->read_array(data, size)) {
+    if(!this->uart_read_array(data, size)) {
         ESP_LOGE(TAG, "error read_array");
     }
     ESP_LOGV(TAG, "receiving %d bytes", size);
     pppos_input(this->ppp_control_block_, data, size);
   }
-
 }
 
 void PPPoSComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "PPPoS:");
+#ifdef PPPOS_USE_CDC
+  ESP_LOGCONFIG(TAG, " USING USB_CDC");
+#else
+  ESP_LOGCONFIG(TAG, " USING UART COMPONENT");
+#endif
   //this->dump_connect_params_();
 }
 
 float PPPoSComponent::get_setup_priority() const { return setup_priority::WIFI; }
 
-bool PPPoSComponent::can_proceed() { return this->is_connected(); }
+bool PPPoSComponent::can_proceed() { return this->is_connected() || this->is_failed(); }
 
 network::IPAddress PPPoSComponent::get_ip_address() {
   return network::IPAddress(this->ppp_netif_.ip_addr.addr);
@@ -204,6 +212,31 @@ bool PPPoSComponent::is_connected() {
 }
 
 void PPPoSComponent::set_manual_ip(const ManualIP &manual_ip) { this->manual_ip_ = manual_ip; }
+
+
+bool PPPoSComponent::uart_read_array(uint8_t *data, size_t len) {
+#ifdef PPPOS_USE_CDC
+  this->hw_serial_->readBytes(data, len);
+  return true;
+#else
+  return this->read_array(data, len);
+#endif
+}
+int PPPoSComponent::uart_available() {
+#ifdef PPPOS_USE_CDC
+  return this->hw_serial_->available();
+#else
+  return this->available();
+#endif
+}
+void PPPoSComponent::uart_write_array(const uint8_t *data, size_t len) {
+#ifdef PPPOS_USE_CDC
+  this->hw_serial_->write(data, len);
+#else
+  return this->write_array(data, len);
+#endif
+}
+
 
 }  // namespace pppos
 }  // namespace esphome

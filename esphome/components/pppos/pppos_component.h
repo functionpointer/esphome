@@ -70,10 +70,14 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
   uint32_t connect_begin_;
   ppp_pcb *ppp_control_block_ = nullptr;
   struct netif ppp_netif_;
+
+  bool uart_read_array(uint8_t *data, size_t len);
+  int uart_available();
+  void uart_write_array(const uint8_t *data, size_t len);
 #ifdef PPPOS_USE_CDC
   uint32_t baud_rate_;
  public:
-  void set_baud_rate(uint32_t baud_rate);
+  void set_baud_rate(uint32_t baud_rate) {this->baud_rate_ = baud_rate;}
   uint32_t get_baud_rate() const { return baud_rate_; }
  protected:
 #ifdef USE_ARDUINO
