@@ -331,6 +331,17 @@ void APIServer::send_bluetooth_device_unpairing(uint64_t address, bool success, 
   }
 }
 
+void APIServer::send_bluetooth_device_clear_cache(uint64_t address, bool success, esp_err_t error) {
+  BluetoothDeviceClearCacheResponse call;
+  call.address = address;
+  call.success = success;
+  call.error = error;
+
+  for (auto &client : this->clients_) {
+    client->send_bluetooth_device_clear_cache_response(call);
+  }
+}
+
 void APIServer::send_bluetooth_connections_free(uint8_t free, uint8_t limit) {
   BluetoothConnectionsFreeResponse call;
   call.free = free;
@@ -415,6 +426,22 @@ void APIServer::on_shutdown() {
   }
   delay(10);
 }
+
+#ifdef USE_VOICE_ASSISTANT
+bool APIServer::start_voice_assistant(const std::string &conversation_id) {
+  for (auto &c : this->clients_) {
+    if (c->request_voice_assistant(true, conversation_id))
+      return true;
+  }
+  return false;
+}
+void APIServer::stop_voice_assistant() {
+  for (auto &c : this->clients_) {
+    if (c->request_voice_assistant(false, ""))
+      return;
+  }
+}
+#endif
 
 }  // namespace api
 }  // namespace esphome
