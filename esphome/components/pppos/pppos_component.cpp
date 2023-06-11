@@ -5,6 +5,7 @@
 
 #ifdef USE_RP2040
 #include <pico/cyw43_arch.h>
+#include "netif/ppp/ppp_impl.h"
 #endif
 
 namespace esphome {
@@ -44,6 +45,7 @@ void PPPoSComponent::setup() {
     this->mark_failed();
     return;
   }
+  ppp_init();
 #endif
 
   this->ppp_control_block_ = pppos_create(&this->ppp_netif_, PPPoSComponent::output_callback, PPPoSComponent::status_callback, nullptr);
