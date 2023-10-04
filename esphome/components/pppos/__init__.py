@@ -81,6 +81,7 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     if config[UART_TYPE] == UART_COMPONENT:
+        cg.add_define("PPPOS_USE_UART_COMPONENT")
         await uart.register_uart_device(var, config)
     else:
         cg.add_define("PPPOS_USE_CDC")

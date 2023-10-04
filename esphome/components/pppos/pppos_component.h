@@ -2,8 +2,11 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/defines.h"
 #include "esphome/components/network/ip_address.h"
+#ifdef PPPOS_USE_UART_COMPONENT
 #include "esphome/components/uart/uart.h"
+#endif
 
 #include "lwip/dns.h"
 #include "lwip/err.h"
@@ -41,7 +44,11 @@ enum class PPPoSComponentState {
   CONNECTED,
 };
 
-class PPPoSComponent : public Component, public uart::UARTDevice {
+class PPPoSComponent : public Component
+#ifdef PPPOS_USE_UART_COMPONENT
+                       ,public uart::UARTDevice
+#endif
+{
  public:
   PPPoSComponent();
   void setup() override;
@@ -82,8 +89,8 @@ class PPPoSComponent : public Component, public uart::UARTDevice {
  protected:
 #ifdef USE_ARDUINO
   Stream *hw_serial_{nullptr};
-#endif
-#endif
+#endif // USE_ARDUINO
+#endif // PPPOS_USE_CDC
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
