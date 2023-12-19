@@ -10,6 +10,7 @@ static const char *const TAG = "pipsolar";
 void Pipsolar::setup() {
   this->state_ = STATE_IDLE;
   this->command_start_millis_ = 0;
+  this->unsuccessful_count_ = 0;
 }
 
 void Pipsolar::empty_uart_buffer_() {
@@ -706,6 +707,7 @@ void Pipsolar::loop() {
       }
       // crc ok
       this->state_ = STATE_POLL_CHECKED;
+      this->unsuccessful_count_ = 0;
       return;
     } else {
       this->state_ = STATE_IDLE;
@@ -755,6 +757,333 @@ void Pipsolar::loop() {
       // command timeout
       ESP_LOGD(TAG, "timeout command to poll: %s", this->used_polling_commands_[this->last_polling_command_].command);
       this->state_ = STATE_IDLE;
+
+      // mark as unavailable if this happens a few times in a row
+      if(this->unsuccessful_count_ > 10) {
+        if (this->grid_rating_voltage_) {
+          this->grid_rating_voltage_->publish_state(NAN);
+        }
+        if (this->grid_rating_current_) {
+          this->grid_rating_current_->publish_state(NAN);
+        }
+        if (this->ac_output_rating_voltage_) {
+          this->ac_output_rating_voltage_->publish_state(NAN);
+        }
+        if (this->ac_output_rating_frequency_) {
+          this->ac_output_rating_frequency_->publish_state(NAN);
+        }
+        if (this->ac_output_rating_current_) {
+          this->ac_output_rating_current_->publish_state(NAN);
+        }
+        if (this->ac_output_rating_apparent_power_) {
+          this->ac_output_rating_apparent_power_->publish_state(NAN);
+        }
+        if (this->ac_output_rating_active_power_) {
+          this->ac_output_rating_active_power_->publish_state(NAN);
+        }
+        if (this->battery_rating_voltage_) {
+          this->battery_rating_voltage_->publish_state(NAN);
+        }
+        if (this->battery_recharge_voltage_) {
+          this->battery_recharge_voltage_->publish_state(NAN);
+        }
+        if (this->battery_under_voltage_) {
+          this->battery_under_voltage_->publish_state(NAN);
+        }
+        if (this->battery_bulk_voltage_) {
+          this->battery_bulk_voltage_->publish_state(NAN);
+        }
+        if (this->battery_float_voltage_) {
+          this->battery_float_voltage_->publish_state(NAN);
+        }
+        if (this->battery_type_) {
+          this->battery_type_->publish_state(NAN);
+        }
+        if (this->current_max_ac_charging_current_) {
+          this->current_max_ac_charging_current_->publish_state(NAN);
+        }
+        if (this->current_max_charging_current_) {
+          this->current_max_charging_current_->publish_state(NAN);
+        }
+        if (this->input_voltage_range_) {
+          this->input_voltage_range_->publish_state(NAN);
+        }
+        if (this->input_voltage_range_switch_) {
+          this->input_voltage_range_switch_->publish_state(NAN);
+        }
+        if (this->output_source_priority_) {
+          this->output_source_priority_->publish_state(NAN);
+        }
+        if (this->output_source_priority_utility_switch_) {
+          this->output_source_priority_utility_switch_->publish_state(NAN);
+        }
+        if (this->output_source_priority_solar_switch_) {
+          this->output_source_priority_solar_switch_->publish_state(NAN);
+        }
+        if (this->output_source_priority_battery_switch_) {
+          this->output_source_priority_battery_switch_->publish_state(NAN);
+        }
+        if (this->charger_source_priority_) {
+          this->charger_source_priority_->publish_state(NAN);
+        }
+        if (this->parallel_max_num_) {
+          this->parallel_max_num_->publish_state(NAN);
+        }
+        if (this->machine_type_) {
+          this->machine_type_->publish_state(NAN);
+        }
+        if (this->topology_) {
+          this->topology_->publish_state(NAN);
+        }
+        if (this->output_mode_) {
+          this->output_mode_->publish_state(NAN);
+        }
+        if (this->battery_redischarge_voltage_) {
+          this->battery_redischarge_voltage_->publish_state(NAN);
+        }
+        if (this->pv_ok_condition_for_parallel_) {
+          this->pv_ok_condition_for_parallel_->publish_state(NAN);
+        }
+        if (this->pv_ok_condition_for_parallel_switch_) {
+          this->pv_ok_condition_for_parallel_switch_->publish_state(NAN);
+        }
+        if (this->pv_power_balance_) {
+          this->pv_power_balance_->publish_state(NAN);
+        }
+        if (this->pv_power_balance_switch_) {
+          this->pv_power_balance_switch_->publish_state(NAN);
+        }
+        if (this->grid_voltage_) {
+          this->grid_voltage_->publish_state(NAN);
+        }
+        if (this->grid_frequency_) {
+          this->grid_frequency_->publish_state(NAN);
+        }
+        if (this->ac_output_voltage_) {
+          this->ac_output_voltage_->publish_state(NAN);
+        }
+        if (this->ac_output_frequency_) {
+          this->ac_output_frequency_->publish_state(NAN);
+        }
+        if (this->ac_output_apparent_power_) {
+          this->ac_output_apparent_power_->publish_state(NAN);
+        }
+        if (this->ac_output_active_power_) {
+          this->ac_output_active_power_->publish_state(NAN);
+        }
+        if (this->output_load_percent_) {
+          this->output_load_percent_->publish_state(NAN);
+        }
+        if (this->bus_voltage_) {
+          this->bus_voltage_->publish_state(NAN);
+        }
+        if (this->battery_voltage_) {
+          this->battery_voltage_->publish_state(NAN);
+        }
+        if (this->battery_charging_current_) {
+          this->battery_charging_current_->publish_state(NAN);
+        }
+        if (this->battery_capacity_percent_) {
+          this->battery_capacity_percent_->publish_state(NAN);
+        }
+        if (this->inverter_heat_sink_temperature_) {
+          this->inverter_heat_sink_temperature_->publish_state(NAN);
+        }
+        if (this->pv_input_current_for_battery_) {
+          this->pv_input_current_for_battery_->publish_state(NAN);
+        }
+        if (this->pv_input_voltage_) {
+          this->pv_input_voltage_->publish_state(NAN);
+        }
+        if (this->battery_voltage_scc_) {
+          this->battery_voltage_scc_->publish_state(NAN);
+        }
+        if (this->battery_discharge_current_) {
+          this->battery_discharge_current_->publish_state(NAN);
+        }
+        if (this->add_sbu_priority_version_) {
+          this->add_sbu_priority_version_->publish_state(NAN);
+        }
+        if (this->configuration_status_) {
+          this->configuration_status_->publish_state(NAN);
+        }
+        if (this->scc_firmware_version_) {
+          this->scc_firmware_version_->publish_state(NAN);
+        }
+        if (this->load_status_) {
+          this->load_status_->publish_state(NAN);
+        }
+        if (this->battery_voltage_to_steady_while_charging_) {
+          this->battery_voltage_to_steady_while_charging_->publish_state(NAN);
+        }
+        if (this->charging_status_) {
+          this->charging_status_->publish_state(NAN);
+        }
+        if (this->scc_charging_status_) {
+          this->scc_charging_status_->publish_state(NAN);
+        }
+        if (this->ac_charging_status_) {
+          this->ac_charging_status_->publish_state(NAN);
+        }
+        if (this->battery_voltage_offset_for_fans_on_) {
+          this->battery_voltage_offset_for_fans_on_->publish_state(NAN);
+        }
+        if (this->eeprom_version_) {
+          this->eeprom_version_->publish_state(NAN);
+        }
+        if (this->pv_charging_power_) {
+          this->pv_charging_power_->publish_state(NAN);
+        }
+        if (this->charging_to_floating_mode_) {
+          this->charging_to_floating_mode_->publish_state(NAN);
+        }
+        if (this->switch_on_) {
+          this->switch_on_->publish_state(NAN);
+        }
+        if (this->dustproof_installed_) {
+          this->dustproof_installed_->publish_state(NAN);
+        }
+        if (this->device_mode_) {
+          this->device_mode_->publish_state(NAN);
+        }
+        if (this->silence_buzzer_open_buzzer_) {
+          this->silence_buzzer_open_buzzer_->publish_state(NAN);
+        }
+        if (this->overload_bypass_function_) {
+          this->overload_bypass_function_->publish_state(NAN);
+        }
+        if (this->lcd_escape_to_default_) {
+          this->lcd_escape_to_default_->publish_state(NAN);
+        }
+        if (this->overload_restart_function_) {
+          this->overload_restart_function_->publish_state(NAN);
+        }
+        if (this->over_temperature_restart_function_) {
+          this->over_temperature_restart_function_->publish_state(NAN);
+        }
+        if (this->backlight_on_) {
+          this->backlight_on_->publish_state(NAN);
+        }
+        if (this->alarm_on_when_primary_source_interrupt_) {
+          this->alarm_on_when_primary_source_interrupt_->publish_state(NAN);
+        }
+        if (this->fault_code_record_) {
+          this->fault_code_record_->publish_state(NAN);
+        }
+        if (this->power_saving_) {
+          this->power_saving_->publish_state(NAN);
+        }
+        if (this->warnings_present_) {
+          this->warnings_present_->publish_state(NAN);
+        }
+        if (this->faults_present_) {
+          this->faults_present_->publish_state(NAN);
+        }
+        if (this->warning_power_loss_) {
+          this->warning_power_loss_->publish_state(NAN);
+        }
+        if (this->fault_inverter_fault_) {
+          this->fault_inverter_fault_->publish_state(NAN);
+        }
+        if (this->fault_bus_over_) {
+          this->fault_bus_over_->publish_state(NAN);
+        }
+        if (this->fault_bus_under_) {
+          this->fault_bus_under_->publish_state(NAN);
+        }
+        if (this->fault_bus_soft_fail_) {
+          this->fault_bus_soft_fail_->publish_state(NAN);
+        }
+        if (this->warning_line_fail_) {
+          this->warning_line_fail_->publish_state(NAN);
+        }
+        if (this->fault_opvshort_) {
+          this->fault_opvshort_->publish_state(NAN);
+        }
+        if (this->fault_inverter_voltage_too_low_) {
+          this->fault_inverter_voltage_too_low_->publish_state(NAN);
+        }
+        if (this->fault_inverter_voltage_too_high_) {
+          this->fault_inverter_voltage_too_high_->publish_state(NAN);
+        }
+        if (this->warning_over_temperature_) {
+          this->warning_over_temperature_->publish_state(NAN);
+        }
+        if (this->warning_fan_lock_) {
+          this->warning_fan_lock_->publish_state(NAN);
+        }
+        if (this->warning_battery_voltage_high_) {
+          this->warning_battery_voltage_high_->publish_state(NAN);
+        }
+        if (this->warning_battery_low_alarm_) {
+          this->warning_battery_low_alarm_->publish_state(NAN);
+        }
+        if (this->warning_battery_under_shutdown_) {
+          this->warning_battery_under_shutdown_->publish_state(NAN);
+        }
+        if (this->warning_battery_derating_) {
+          this->warning_battery_derating_->publish_state(NAN);
+        }
+        if (this->warning_over_load_) {
+          this->warning_over_load_->publish_state(NAN);
+        }
+        if (this->warning_eeprom_failed_) {
+          this->warning_eeprom_failed_->publish_state(NAN);
+        }
+        if (this->fault_inverter_over_current_) {
+          this->fault_inverter_over_current_->publish_state(NAN);
+        }
+        if (this->fault_inverter_soft_failed_) {
+          this->fault_inverter_soft_failed_->publish_state(NAN);
+        }
+        if (this->fault_self_test_failed_) {
+          this->fault_self_test_failed_->publish_state(NAN);
+        }
+        if (this->fault_op_dc_voltage_over_) {
+          this->fault_op_dc_voltage_over_->publish_state(NAN);
+        }
+        if (this->fault_battery_open_) {
+          this->fault_battery_open_->publish_state(NAN);
+        }
+        if (this->fault_current_sensor_failed_) {
+          this->fault_current_sensor_failed_->publish_state(NAN);
+        }
+        if (this->fault_battery_short_) {
+          this->fault_battery_short_->publish_state(NAN);
+        }
+        if (this->warning_power_limit_) {
+          this->warning_power_limit_->publish_state(NAN);
+        }
+        if (this->warning_pv_voltage_high_) {
+          this->warning_pv_voltage_high_->publish_state(NAN);
+        }
+        if (this->fault_mppt_overload_) {
+          this->fault_mppt_overload_->publish_state(NAN);
+        }
+        if (this->warning_mppt_overload_) {
+          this->warning_mppt_overload_->publish_state(NAN);
+        }
+        if (this->warning_battery_too_low_to_charge_) {
+          this->warning_battery_too_low_to_charge_->publish_state(NAN);
+        }
+        if (this->fault_dc_dc_over_current_) {
+          this->fault_dc_dc_over_current_->publish_state(NAN);
+        }
+        if (this->fault_code_) {
+          this->fault_code_->publish_state(NAN);
+        }
+        if (this->warnung_low_pv_energy_) {
+          this->warnung_low_pv_energy_->publish_state(NAN);
+        }
+        if (this->warning_high_ac_input_during_bus_soft_start_) {
+          this->warning_high_ac_input_during_bus_soft_start_->publish_state(NAN);
+        }
+        if (this->warning_battery_equalization_) {
+          this->warning_battery_equalization_->publish_state(NAN);
+        }
+      } else {
+        this->unsuccessful_count_++;
+      }
     } else {
     }
   }
