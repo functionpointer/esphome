@@ -53,9 +53,9 @@ class USBNCMComponent : public Component
   std::string use_address_;
   struct netif netif_;
 
-  static err_t init_callback(struct netif *netif);
-  static void status_callback(ppp_pcb *pcb, int err_code, void *ctx);
-  static uint32_t output_callback(ppp_pcb *pcb, const void *data, uint32_t len, void *ctx);
+  static err_t netif_init_callback(struct netif *netif);
+  static void netif_status_callback(ppp_pcb *pcb, int err_code, void *ctx);
+  static void netif_link_callback(ppp_pcb *pcb, int err_code, void *ctx);
 
   USBNCMComponentState state_{USBNCMComponentState::STOPPED};
 

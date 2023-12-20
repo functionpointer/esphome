@@ -45,9 +45,9 @@ void USBNCMComponent::start_connect_() {
     netmask = static_cast<uint32_t>(this->manual_ip_->subnet);
   }
 
-  this->netif_ = netif_add(this->netif_, &ipaddr, &netmask, &gateway, NULL, USBNCMComponent::init_callback, ip_input);
-  netif_set_status_callback(this->netif_, USBNCMComponent::status_callback);
-  netif_set_link_callback(this->netif_, USBNCMComponent::link_callback);
+  this->netif_ = netif_add(this->netif_, &ipaddr, &netmask, &gateway, NULL, USBNCMComponent::netif_init_callback, ip_input);
+  netif_set_status_callback(this->netif_, USBNCMComponent::netif_status_callback);
+  netif_set_link_callback(this->netif_, USBNCMComponent::netif_link_callback);
   netif_set_default(this->netif_);
 
 
@@ -60,6 +60,35 @@ void USBNCMComponent::start_connect_() {
 void USBNCMComponent::loop() {
 
 }
+
+err_t USBNCMComponent::netif_init_callback(struct netif *netif) {
+  LOG("netif_init_cb");
+  LWIP_ASSERT("netif != NULL", (netif != NULL));
+  /*netif->mtu = CFG_TUD_NET_MTU;
+  netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+  netif->state = NULL;
+  netif->name[0] = 'u'; // for "USB"
+  netif->name[1] = '0';
+  netif->linkoutput = linkoutput_fn;
+  netif->output = output_fn;
+
+  netif->hostname = getBoardHostnameString();*/
+
+  return ERR_OK;
+}
+
+void USBNCMComponent::netif_link_callback(struct netif *state_netif) {
+  if (netif_is_link_up(state_netif)) {
+    LOG("netif_link_callback==UP\n");
+  } else {
+    LOG("netif_link_callback==DOWN\n");
+  }
+}
+
+void USBNCMComponent::netif_status_callback(struct netif *nif) {
+  LOG("netif_status_callback: %c%c%d is %s\n", nif->name[0], nif->name[1], nif->num, netif_is_up(nif) ? "UP" : "DOWN");
+}
+
 
 void USBNCMComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "USB NCM:");
