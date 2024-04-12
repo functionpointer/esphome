@@ -17,6 +17,7 @@ USBNCMComponent *global_usbncm_component;  // NOLINT(cppcoreguidelines-avoid-non
 USBNCMComponent::USBNCMComponent() { global_usbncm_component = this; }
 
 void USBNCMComponent::setup() {
+  //implementation inspired by https://github.com/OpenLightingProject/rp2040-dmxsun
   ESP_LOGCONFIG(TAG, "Setting up USB NCM...");
 
   pico_unique_board_id_t id;
@@ -64,7 +65,7 @@ void USBNCMComponent::loop() {
 err_t USBNCMComponent::netif_init_callback(struct netif *netif) {
   LOG("netif_init_cb");
   LWIP_ASSERT("netif != NULL", (netif != NULL));
-  /*netif->mtu = CFG_TUD_NET_MTU;
+  netif->mtu = 1500;
   netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
   netif->state = NULL;
   netif->name[0] = 'u'; // for "USB"
@@ -72,7 +73,7 @@ err_t USBNCMComponent::netif_init_callback(struct netif *netif) {
   netif->linkoutput = linkoutput_fn;
   netif->output = output_fn;
 
-  netif->hostname = getBoardHostnameString();*/
+  netif->hostname = global_usbncm_component->get_use_address();
 
   return ERR_OK;
 }

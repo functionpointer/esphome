@@ -9,6 +9,10 @@
 #include "lwip/err.h"
 #include "lwip/netif.h"
 
+#include "lwip/igmp.h"
+#include "lwip/init.h"
+#include "lwip/timeouts.h"
+
 #include <queue>
 
 
@@ -64,9 +68,6 @@ class USBNCMComponent : public Component
   int uart_available();
   void uart_write_array(const uint8_t *data, size_t len);
 };
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern USBCNMComponent *global_pppos_component;
 
 }  // namespace pppos
 }  // namespace esphome
