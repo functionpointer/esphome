@@ -12,6 +12,7 @@
 #include "lwip/igmp.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
+#include "lwip/etharp.h"
 
 #include <queue>
 
@@ -51,15 +52,19 @@ class USBNCMComponent : public Component
   network::IPAddress get_ip_address();
   std::string get_use_address() const;
   void set_use_address(const std::string &use_address);
+  static pbuf *_received_frame;
 
  protected:
   optional<ManualIP> manual_ip_{};
   std::string use_address_;
   struct netif netif_;
 
+
   static err_t netif_init_callback(struct netif *netif);
-  static void netif_status_callback(ppp_pcb *pcb, int err_code, void *ctx);
-  static void netif_link_callback(ppp_pcb *pcb, int err_code, void *ctx);
+  static void netif_status_callback(struct netif *netif);
+  static void netif_link_callback(struct netif *netif);
+  static err_t linkoutput_fn(struct netif *netif, struct pbuf *p);
+  static err_t output_fn(struct netif *netif, struct pbuf *p, const ip_addr_t *addr);
 
   USBNCMComponentState state_{USBNCMComponentState::STOPPED};
 
