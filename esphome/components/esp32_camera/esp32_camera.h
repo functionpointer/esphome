@@ -161,6 +161,7 @@ class ESP32Camera : public Component, public EntityBase {
   void update_camera_parameters();
 
   void add_image_callback(std::function<void(std::shared_ptr<CameraImage>)> &&callback);
+  void add_pre_image_callback(std::function<void()> &&callback);
   void add_stream_start_callback(std::function<void()> &&callback);
   void add_stream_stop_callback(std::function<void()> &&callback);
 
@@ -204,12 +205,14 @@ class ESP32Camera : public Component, public EntityBase {
   uint8_t stream_requesters_{0};
   QueueHandle_t framebuffer_get_queue_;
   QueueHandle_t framebuffer_return_queue_;
+  CallbackManager<void()> pre_image_callback_{};
   CallbackManager<void(std::shared_ptr<CameraImage>)> new_image_callback_{};
   CallbackManager<void()> stream_start_callback_{};
   CallbackManager<void()> stream_stop_callback_{};
 
   uint32_t last_idle_request_{0};
   uint32_t last_update_{0};
+  bool pre_callback_done_ = false;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -239,6 +242,14 @@ class ESP32CameraStreamStopTrigger : public Trigger<> {
  public:
   explicit ESP32CameraStreamStopTrigger(ESP32Camera *parent) {
     parent->add_stream_stop_callback([this]() { this->trigger(); });
+  }
+
+ protected:
+};
+class ESP32CameraPreImageTrigger : public Trigger<> {
+ public:
+  explicit ESP32CameraPreImageTrigger(ESP32Camera *parent) {
+    parent->add_pre_image_callback([this]() { this->trigger(); });
   }
 
  protected:

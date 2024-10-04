@@ -177,6 +177,13 @@ void ESP32Camera::loop() {
   }
   if (now - this->last_update_ <= this->max_update_interval_)
     return;
+  if (!this->pre_callback_done_) {
+    // do pre_callback and wait another max_update_interval_ before taking picture
+    this->pre_image_callback_.call();
+    this->pre_callback_done_ = true;
+    // this->last_update_ = now;
+    // return;
+  }
 
   // request new image
   camera_fb_t *fb;
@@ -197,6 +204,7 @@ void ESP32Camera::loop() {
   this->new_image_callback_.call(this->current_image_);
   this->last_update_ = now;
   this->single_requesters_ = 0;
+  this->pre_callback_done_ = false;
 }
 
 float ESP32Camera::get_setup_priority() const { return setup_priority::DATA; }
@@ -343,6 +351,10 @@ void ESP32Camera::set_frame_buffer_count(uint8_t fb_count) {
 }
 
 /* ---------------- public API (specific) ---------------- */
+void ESP32Camera::add_pre_image_callback(std::function<void()> &&callback) {
+  this->pre_image_callback_.add(std::move(callback));
+}
+
 void ESP32Camera::add_image_callback(std::function<void(std::shared_ptr<CameraImage>)> &&callback) {
   this->new_image_callback_.add(std::move(callback));
 }

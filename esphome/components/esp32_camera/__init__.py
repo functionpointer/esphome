@@ -1,23 +1,22 @@
+from esphome import automation, pins
 import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component
 import esphome.config_validation as cv
-from esphome import automation
-from esphome import pins
 from esphome.const import (
+    CONF_BRIGHTNESS,
+    CONF_CONTRAST,
+    CONF_DATA_PINS,
     CONF_FREQUENCY,
     CONF_ID,
     CONF_PIN,
-    CONF_SCL,
-    CONF_SDA,
-    CONF_DATA_PINS,
     CONF_RESET_PIN,
     CONF_RESOLUTION,
-    CONF_BRIGHTNESS,
-    CONF_CONTRAST,
+    CONF_SCL,
+    CONF_SDA,
     CONF_TRIGGER_ID,
     CONF_VSYNC_PIN,
 )
 from esphome.core import CORE
-from esphome.components.esp32 import add_idf_component
 from esphome.cpp_helpers import setup_entity
 
 DEPENDENCIES = ["esp32"]
@@ -37,6 +36,10 @@ ESP32CameraStreamStartTrigger = esp32_camera_ns.class_(
 )
 ESP32CameraStreamStopTrigger = esp32_camera_ns.class_(
     "ESP32CameraStreamStopTrigger",
+    automation.Trigger.template(),
+)
+ESP32CameraPreImageTrigger = esp32_camera_ns.class_(
+    "ESP32CameraPreImageTrigger",
     automation.Trigger.template(),
 )
 ESP32CameraFrameSize = esp32_camera_ns.enum("ESP32CameraFrameSize")
@@ -147,6 +150,7 @@ CONF_FRAME_BUFFER_COUNT = "frame_buffer_count"
 CONF_ON_STREAM_START = "on_stream_start"
 CONF_ON_STREAM_STOP = "on_stream_stop"
 CONF_ON_IMAGE = "on_image"
+CONF_PRE_IMAGE = "pre_image"
 
 camera_range_param = cv.int_range(min=-2, max=2)
 
@@ -235,6 +239,13 @@ CONFIG_SCHEMA = cv.ENTITY_BASE_SCHEMA.extend(
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(ESP32CameraImageTrigger),
             }
         ),
+        cv.Optional(CONF_PRE_IMAGE): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                    ESP32CameraPreImageTrigger
+                ),
+            }
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -313,3 +324,7 @@ async def to_code(config):
         await automation.build_automation(
             trigger, [(ESP32CameraImageData, "image")], conf
         )
+
+    for conf in config.get(CONF_PRE_IMAGE, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [], conf)
