@@ -23,8 +23,7 @@
 #include <SerialUSB.h>
 #endif  // USE_RP2040
 #endif  // USE_ARDUINO
-#endif // PPPOS_USE_CDC
-
+#endif  // PPPOS_USE_CDC
 
 namespace esphome {
 namespace pppos {
@@ -46,7 +45,8 @@ enum class PPPoSComponentState {
 
 class PPPoSComponent : public Component
 #ifdef PPPOS_USE_UART_COMPONENT
-                       ,public uart::UARTDevice
+    ,
+                       public uart::UARTDevice
 #endif
 {
  public:
@@ -60,7 +60,7 @@ class PPPoSComponent : public Component
 
   void set_manual_ip(const ManualIP &manual_ip);
 
-  network::IPAddress get_ip_address();
+  network::IPAddresses get_ip_addresses();
   std::string get_use_address() const;
   void set_use_address(const std::string &use_address);
 
@@ -83,14 +83,16 @@ class PPPoSComponent : public Component
   void uart_write_array(const uint8_t *data, size_t len);
 #ifdef PPPOS_USE_CDC
   uint32_t baud_rate_;
+
  public:
-  void set_baud_rate(uint32_t baud_rate) {this->baud_rate_ = baud_rate;}
+  void set_baud_rate(uint32_t baud_rate) { this->baud_rate_ = baud_rate; }
   uint32_t get_baud_rate() const { return baud_rate_; }
+
  protected:
 #ifdef USE_ARDUINO
   Stream *hw_serial_{nullptr};
-#endif // USE_ARDUINO
-#endif // PPPOS_USE_CDC
+#endif  // USE_ARDUINO
+#endif  // PPPOS_USE_CDC
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
