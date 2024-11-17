@@ -16,6 +16,7 @@ class MLX90393Cls : public PollingComponent, public i2c::I2CDevice, public MLX90
   void dump_config() override;
   float get_setup_priority() const override;
   void update() override;
+  void loop() override;
 
   void set_drdy_gpio(GPIOPin *pin) { drdy_pin_ = pin; }
 
@@ -43,6 +44,7 @@ class MLX90393Cls : public PollingComponent, public i2c::I2CDevice, public MLX90
   bool read_drdy_pin() override;
   void sleep_millis(uint32_t millis) override;
   void sleep_micros(uint32_t micros) override;
+  uint32_t millis() override;
 
  protected:
   MLX90393 mlx_;

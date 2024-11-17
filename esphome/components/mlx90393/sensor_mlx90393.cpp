@@ -26,6 +26,7 @@ bool MLX90393Cls::read_drdy_pin() {
 }
 void MLX90393Cls::sleep_millis(uint32_t millis) { delay(millis); }
 void MLX90393Cls::sleep_micros(uint32_t micros) { delayMicroseconds(micros); }
+uint32_t MLX90393Cls::millis() { return ::millis(); }
 
 void MLX90393Cls::setup() {
   ESP_LOGCONFIG(TAG, "Setting up MLX90393...");
@@ -68,28 +69,11 @@ void MLX90393Cls::dump_config() {
 float MLX90393Cls::get_setup_priority() const { return setup_priority::DATA; }
 
 void MLX90393Cls::update() {
-  MLX90393::txyz data;
-
-  if (this->mlx_.readData(data) == MLX90393::STATUS_OK) {
-    ESP_LOGD(TAG, "received %f %f %f", data.x, data.y, data.z);
-    if (this->x_sensor_ != nullptr) {
-      this->x_sensor_->publish_state(data.x);
-    }
-    if (this->y_sensor_ != nullptr) {
-      this->y_sensor_->publish_state(data.y);
-    }
-    if (this->z_sensor_ != nullptr) {
-      this->z_sensor_->publish_state(data.z);
-    }
-    if (this->t_sensor_ != nullptr) {
-      this->t_sensor_->publish_state(data.t);
-    }
-    this->status_clear_warning();
-  } else {
-    ESP_LOGE(TAG, "failed to read data");
-    this->status_set_warning();
-  }
+  MLX90393::return_status_t status = this->mlx.checkStatus(
+      this->mlx_.startMeasurement(MLX90393::X_FLAG | MLX90393::Y_FLAG | MLX90393::Z_FLAG | MLX90393::T_FLAG));
 }
+
+void MLX90393Cls::loop() { if () }
 
 }  // namespace mlx90393
 }  // namespace esphome
