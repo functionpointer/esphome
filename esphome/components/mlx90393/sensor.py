@@ -129,6 +129,8 @@ async def to_code(config):
     cg.add(var.set_gain(GAIN[config[CONF_GAIN]]))
     cg.add(var.set_oversampling(config[CONF_OVERSAMPLING]))
     cg.add(var.set_filter(config[CONF_FILTER]))
+    cg.add(var.set_temperature_compensation(config[CONF_TEMPERATURE_COMPENSATION]))
+    cg.add(var.set_hallconf(config[CONF_HALLCONF]))
 
     if CONF_X_AXIS in config:
         sens = await sensor.new_sensor(config[CONF_X_AXIS])
