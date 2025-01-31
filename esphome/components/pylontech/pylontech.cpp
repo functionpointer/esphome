@@ -100,5 +100,38 @@ void PylontechComponent::process_line_(std::string &buffer) {
 
 float PylontechComponent::get_setup_priority() const { return setup_priority::DATA; }
 
+/*
+ * possible future commands:
+ *
+ * set time to 2022-04-26T20:53:00
+ * > time 22 04 26 20 53 00
+ *
+ * possibly unlock for some batteries:
+ * > login debug
+ *
+ * set communication to 115200 (send via 1200baud 8n1):
+ * > \x7e\x32\x30\x30\x31\x34\x36\x38\x32\x43\x30\x30\x34\x38\x35\x32\x30\x46\x43\x43\x33\x0d
+ * then switch to 115200
+ * > \x0D\x0A
+ * pylontech> prompt should appear
+ *
+ * read state of health:
+ * > soh
+ *
+ * read statistics:
+ * > stat1
+ * > stat2
+ * ...
+ *
+ * other commands:
+ *
+ * > pwrsys
+ * > getpwr1
+ * > getpwr2
+ * ...
+ * > logout
+ * > help
+ */
+
 }  // namespace pylontech
 }  // namespace esphome
