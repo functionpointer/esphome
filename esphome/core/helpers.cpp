@@ -19,6 +19,9 @@
 #endif
 #include <unistd.h>
 #endif
+#if defined(USE_USB_NCM)
+#include "esphome/components/usb_ncm/usb_ncm_component.h"
+#endif
 #if defined(USE_ESP8266)
 #include <osapi.h>
 #include <user_interface.h>
@@ -661,6 +664,10 @@ void get_mac_address_raw(uint8_t *mac) {  // NOLINT(readability-non-const-parame
 #if defined(USE_HOST)
   static const uint8_t esphome_host_mac_address[6] = USE_ESPHOME_HOST_MAC_ADDRESS;
   memcpy(mac, esphome_host_mac_address, sizeof(esphome_host_mac_address));
+#elif defined(USE_USB_NCM)
+  if (usb_ncm::global_usb_ncm_component != nullptr) {
+    usb_ncm::global_usb_ncm_component->get_usb_ncm_mac_address_raw(mac);
+  }
 #elif defined(USE_ESP32)
 #if defined(CONFIG_SOC_IEEE802154_SUPPORTED)
   // When CONFIG_SOC_IEEE802154_SUPPORTED is defined, esp_efuse_mac_get_default

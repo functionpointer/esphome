@@ -9,6 +9,10 @@
 #include "esphome/components/ethernet/ethernet_component.h"
 #endif
 
+#ifdef USE_USB_NCM
+#include "esphome/components/usb_ncm/usb_ncm_component.h"
+#endif
+
 namespace esphome {
 namespace network {
 
@@ -16,6 +20,12 @@ bool is_connected() {
 #ifdef USE_ETHERNET
   if (ethernet::global_eth_component != nullptr && ethernet::global_eth_component->is_connected())
     return true;
+#endif
+
+#ifdef USE_USB_NCM
+  if (usb_ncm::global_usb_ncm_component != nullptr && usb_ncm::global_usb_ncm_component->is_connected()) {
+    return true;
+  }
 #endif
 
 #ifdef USE_WIFI
