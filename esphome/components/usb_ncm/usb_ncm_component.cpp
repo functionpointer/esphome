@@ -28,25 +28,37 @@ void USBNCMComponent::setup() {
     this->eth.config(localIP, gateway, netmask, dns1, dns2);
   }
 
+  ESP_LOGI(TAG, "Connecting via USB NCM...");
   bool ok = this->eth.begin();
   if (!ok) {
     this->mark_failed();
   }
+  this->state_ = USBNCMComponentState::CONNECTING;
+  connect_begin = millis();
 }
 
 void USBNCMComponent::loop() {
   const uint32_t now = millis();
 
-  if (this->eth.connected() != this->connected_) {
-    this->connected_ = this->eth.connected();
-    if (this->connected_) {
+  if (this->state_ == USBNCMComponentState::STOPPED) {
+  } else if (this->state_ == USBNCMComponentState::CONNECTING) {
+    if (now - connect_begin > 5000) {
+      connect_begin = now;
+      ESP_LOGI(TAG, "Still connecting via USB NCM...");
+    }
+    if (this->eth.connected()) {
       ESP_LOGI(TAG, "Connected via USB NCM!");
 
       this->dump_config();
       this->status_clear_warning();
-    } else {
-      ESP_LOGW(TAG, "Connection via USB NCM lost! Re-connecting...");
+      this->state_ = USBNCMComponentState::CONNECTED;
+    }
+  } else if (this->state_ == USBNCMComponentState::CONNECTED) {
+    if (!this->eth.connected()) {
+      ESP_LOGW(TAG, "Connection via USB NCM lost! reconnecting...");
       this->status_set_warning("connection lost");
+      connect_begin = now;
+      this->state_ = USBNCMComponentState::CONNECTING;
     }
   }
 }
@@ -82,7 +94,7 @@ network::IPAddress USBNCMComponent::get_dns_address(uint8_t num) {
   return dns_ip;
 }
 
-bool USBNCMComponent::is_connected() { return this->connected_; }
+bool USBNCMComponent::is_connected() { return this->state_ == USBNCMComponentState::CONNECTED; }
 
 void USBNCMComponent::set_manual_ip(const ManualIP &manual_ip) { this->manual_ip_ = manual_ip; }
 

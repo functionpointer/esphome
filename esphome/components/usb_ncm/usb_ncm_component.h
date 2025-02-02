@@ -51,7 +51,8 @@ class USBNCMComponent : public Component {
   std::string use_address_;
   optional<ManualIP> manual_ip_{};
 
-  bool connected_{false};
+  USBNCMComponentState state_{USBNCMComponentState::STOPPED};
+  uint32_t connect_begin = 0;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
