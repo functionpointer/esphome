@@ -9,6 +9,7 @@ from esphome.const import (
     CONF_ESPHOME,
     CONF_ETHERNET,
     CONF_PORT,
+    CONF_USB_NCM,
     CONF_USE_ADDRESS,
     CONF_WEB_SERVER,
     CONF_WIFI,
@@ -88,6 +89,7 @@ def is_approximately_integer(value):
 
 
 class TimePeriod:
+    # pylint: disable=too-many-positional-arguments
     def __init__(
         self,
         nanoseconds=None,
@@ -564,6 +566,9 @@ class EsphomeCore:
 
         if CONF_ETHERNET in self.config:
             return self.config[CONF_ETHERNET][CONF_USE_ADDRESS]
+
+        if CONF_USB_NCM in self.config:
+            return self.config[CONF_USB_NCM][CONF_USE_ADDRESS]
 
         return None
 
