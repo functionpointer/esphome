@@ -59,8 +59,24 @@ class MLX90393Cls : public PollingComponent, public i2c::I2CDevice, public MLX90
   uint8_t hallconf_{0xC};
   GPIOPin *drdy_pin_{nullptr};
 
-  bool apply_settings_();
-  bool verify_settings_();
+  enum VerifySettingsStage {
+    VERIFY_SETTINGS_GAIN_SEL = 0,
+    VERIFY_SETTINGS_RESOLUTION,
+    VERIFY_SETTINGS_OVER_SAMPLING,
+    VERIFY_SETTINGS_DIGITAL_FILTERING,
+    VERIFY_SETTINGS_TEMPERATURE_OVER_SAMPLING,
+    VERIFY_SETTINGS_TEMPERATURE_COMPENSATION,
+    VERIFY_SETTINGS_HALLCONF,
+    VERIFY_SETTINGS_LAST,
+  };
+  static const char* SETTING_NAMES[];
+
+  bool apply_all_settings_();
+  uint8_t apply_setting_(VerifySettingsStage which);
+
+  bool verify_all_settings_();
+  bool verify_setting_(VerifySettingsStage which);
+
 };
 
 }  // namespace mlx90393

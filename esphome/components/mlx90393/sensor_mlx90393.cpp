@@ -6,6 +6,17 @@ namespace mlx90393 {
 
 static const char *const TAG = "mlx90393";
 
+const char* MLX90393Cls::SETTING_NAMES[] = {
+    "gain",
+    "resolution",
+    "oversampling",
+    "digital filtering",
+    "temperature oversampling",
+    "temperature compensation",
+    "hallconf",
+    "error",
+};
+
 bool MLX90393Cls::transceive(const uint8_t *request, size_t request_size, uint8_t *response, size_t response_size) {
   i2c::ErrorCode e = this->write(request, request_size);
   if (e != i2c::ErrorCode::ERROR_OK) {
@@ -32,49 +43,51 @@ bool MLX90393Cls::read_drdy_pin() {
 void MLX90393Cls::sleep_millis(uint32_t millis) { delay(millis); }
 void MLX90393Cls::sleep_micros(uint32_t micros) { delayMicroseconds(micros); }
 
-bool MLX90393Cls::apply_settings_() {
+uint8_t MLX90393Cls::apply_setting_(VerifySettingsStage which) {
+  uint8_t ret = -1;
+  switch(which) {
+    case VERIFY_SETTINGS_GAIN_SEL:
+      ret = this->mlx_.setGainSel(this->gain_);
+      break;
+    case VERIFY_SETTINGS_RESOLUTION:
+      ret = this->mlx_.setResolution(this->resolutions_[0], this->resolutions_[1], this->resolutions_[2]);
+      break;
+    case VERIFY_SETTINGS_OVER_SAMPLING:
+      ret = this->mlx_.setOverSampling(this->oversampling_);
+        break;
+    case VERIFY_SETTINGS_DIGITAL_FILTERING:
+      ret = this->mlx_.setDigitalFiltering(this->filter_);
+        break;
+    case VERIFY_SETTINGS_TEMPERATURE_OVER_SAMPLING:
+      ret = this->mlx_.setTemperatureOverSampling(this->temperature_oversampling_);
+        break;
+    case VERIFY_SETTINGS_TEMPERATURE_COMPENSATION:
+      ret = this->mlx_.setTemperatureCompensation(this->temperature_compensation_);
+        break;
+    case VERIFY_SETTINGS_HALLCONF:
+      ret = this->mlx_.setHallConf(this->hallconf_);
+        break;
+    default:
+      break;
+  }
+  if (ret != MLX90393::STATUS_OK) {
+    ESP_LOGE(TAG, "failed to apply %s", SETTING_NAMES[which]);
+  }
+  return ret;
+}
+
+bool MLX90393Cls::apply_all_settings_() {
   // perform dummy read after reset
   // first one always gets NAK even tough everything is fine
   uint8_t ignore = 0;
   this->mlx_.getGainSel(ignore);
 
-  if (this->mlx_.setGainSel(this->gain_) != MLX90393::STATUS_OK) {
-    ESP_LOGW(TAG, "failed to apply gain");
-    return false;
+  uint8_t result = MLX90393::STATUS_OK;
+  for(int i=VERIFY_SETTINGS_GAIN_SEL; i!=VERIFY_SETTINGS_LAST; i++) {
+    VerifySettingsStage stage = static_cast<VerifySettingsStage>(i);
+    result |= this->apply_setting_(stage);
   }
-
-  if (this->mlx_.setResolution(this->resolutions_[0], this->resolutions_[1], this->resolutions_[2]) !=
-      MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply resolutions");
-    return false;
-  }
-
-  if (this->mlx_.setOverSampling(this->oversampling_) != MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply over sampling");
-    return false;
-  }
-
-  if (this->mlx_.setDigitalFiltering(this->filter_) != MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply digital filtering");
-    return false;
-  }
-
-  if (this->mlx_.setTemperatureOverSampling(this->temperature_oversampling_) != MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply temperature over sampling");
-    return false;
-  }
-
-  if (this->mlx_.setTemperatureCompensation(this->temperature_compensation_) != MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply temperature compensation");
-    return false;
-  }
-
-  if (this->mlx_.setHallConf(this->hallconf_) != MLX90393::STATUS_OK) {
-    ESP_LOGE(TAG, "failed to apply hallconf");
-    return false;
-  }
-
-  return true;
+  return result == MLX90393::STATUS_OK;
 }
 
 void MLX90393Cls::setup() {
@@ -84,7 +97,9 @@ void MLX90393Cls::setup() {
   // see the transceive function above, which uses the address from I2CComponent
   this->mlx_.begin_with_hal(this, 0, 0);
 
-  this->apply_settings_();
+  if (!this->apply_all_settings_()) {
+    this->mark_failed();
+  }
 }
 
 void MLX90393Cls::dump_config() {
@@ -129,7 +144,7 @@ void MLX90393Cls::update() {
   }
 
   // perform verifications. if a register has an unexpected value, reset chip and set everything again
-  if (!this->verify_settings_()) {
+  if (!this->verify_all_settings_()) {
     if (this->mlx_.checkStatus(this->mlx_.reset()) != MLX90393::STATUS_OK) {
       ESP_LOGE(TAG, "failed to reset device");
       this->status_set_error();
@@ -137,7 +152,7 @@ void MLX90393Cls::update() {
       return;
     }
 
-    if (!this->apply_settings_()) {
+    if (!this->apply_all_settings_()) {
       ESP_LOGE(TAG, "failed to re-apply settings");
       this->status_set_error();
       this->mark_failed();
@@ -147,16 +162,61 @@ void MLX90393Cls::update() {
   }
 }
 
-enum VerifySettingsStage {
-  VERIFY_SETTINGS_GAIN_SEL = 0,
-  VERIFY_SETTINGS_RESOLUTION,
-  VERIFY_SETTINGS_OVER_SAMPLING,
-  VERIFY_SETTINGS_DIGITAL_FILTERING,
-  VERIFY_SETTINGS_TEMPERATURE_OVER_SAMPLING,
-  VERIFY_SETTINGS_TEMPERATURE_COMPENSATION,
-  VERIFY_SETTINGS_HALLCONF,
-  VERIFY_SETTINGS_LAST,
-};
+bool MLX90393Cls::verify_setting_(VerifySettingsStage which) {
+  uint8_t read_value[3] = {0xFF};
+  uint8_t *expected_value = nullptr;
+  uint8_t num_values = 1;
+
+  uint8_t read_status = -1;
+
+  switch (which) {
+    case VERIFY_SETTINGS_GAIN_SEL:
+      read_status = this->mlx_.getGainSel(read_value[0]);
+      expected_value = &this->gain_;
+      break;
+    case VERIFY_SETTINGS_RESOLUTION:
+      read_status = this->mlx_.getResolution(read_value[0], read_value[1], read_value[2]);
+      expected_value = &this->resolutions_[0];
+      num_values = 3;
+      break;
+    case VERIFY_SETTINGS_OVER_SAMPLING:
+      read_status = this->mlx_.getOverSampling(read_value[0]);
+      expected_value = &this->oversampling_;
+      break;
+    case VERIFY_SETTINGS_DIGITAL_FILTERING:
+      read_status = this->mlx_.getDigitalFiltering(read_value[0]);
+      expected_value = &this->filter_;
+      break;
+    case VERIFY_SETTINGS_TEMPERATURE_OVER_SAMPLING:
+      read_status = this->mlx_.getTemperatureOverSampling(read_value[0]);
+      expected_value = &this->temperature_oversampling_;
+      break;
+    case VERIFY_SETTINGS_TEMPERATURE_COMPENSATION:
+      read_status = this->mlx_.getTemperatureCompensation(read_value[0]);
+      expected_value = (uint8_t*)&this->temperature_compensation_;
+      break;
+    case VERIFY_SETTINGS_HALLCONF:
+      read_status = this->mlx_.getHallConf(read_value[0]);
+      expected_value = &this->hallconf_;
+      break;
+    default:
+      return false;
+  }
+  if(read_status != MLX90393::STATUS_OK) {
+    ESP_LOGE(TAG, "verify error: failed to read %s", SETTING_NAMES[which]);
+    return false;
+  }
+  bool is_correct = true;
+  for (int i=0;i<num_values;i++) {
+    is_correct &= read_value[i] == expected_value[i];
+  }
+  if (!is_correct) {
+    ESP_LOGW(TAG, "verify failed: read back wrong %s: got %u expected %u", SETTING_NAMES[which], read_value[0], expected_value[0]);
+    return false;
+  }
+  ESP_LOGD(TAG, "verify succeeded for %s. got %u", SETTING_NAMES[which], read_value[0]);
+  return true;
+}
 
 /**
  * Regularly checks that our settings are still applied.
@@ -165,122 +225,14 @@ enum VerifySettingsStage {
  * returns true if everything is fine.
  * false if not
  */
-bool MLX90393Cls::verify_settings_() {
+bool MLX90393Cls::verify_all_settings_() {
   static enum VerifySettingsStage stage = VERIFY_SETTINGS_GAIN_SEL;
   static uint32_t last_verify = 0;
 
   // verify at most once every 3s
   if (millis() - last_verify > 3000) {
     last_verify = millis();
-
-    switch (stage) {
-      case VERIFY_SETTINGS_GAIN_SEL: {
-        uint8_t read_gain_sel = -1;
-        if (this->mlx_.getGainSel(read_gain_sel) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read gain sel");
-          return false;
-        }
-        if (read_gain_sel != this->gain_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong gain. got %u expected %u", read_gain_sel, this->gain_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for gain. got %u", read_gain_sel);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_RESOLUTION: {
-        uint8_t x = -1;
-        uint8_t y = -1;
-        uint8_t z = -1;
-        if (this->mlx_.getResolution(x, y, z) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read resolution");
-          return false;
-        }
-        if (x != this->resolutions_[0] || y != this->resolutions_[1] || z != this->resolutions_[2]) {
-          ESP_LOGW(TAG, "verify failed: read back wrong resolutions: got x=%u y=%u z=%u expected x=%u y=%u z=%u", y, x,
-                   z, this->resolutions_[0], this->resolutions_[1], this->resolutions_[2]);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for resolutions. got %u %u %u", x, y, z);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_OVER_SAMPLING: {
-        uint8_t osr = -1;
-        if (this->mlx_.getOverSampling(osr) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read over sampling");
-          return false;
-        }
-        if (osr != this->oversampling_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong over sampling: got %u expected %u", osr, this->oversampling_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for over sampling. got %u", osr);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_DIGITAL_FILTERING: {
-        uint8_t dig_filt = -1;
-        if (this->mlx_.getDigitalFiltering(dig_filt) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read digital filtering");
-          return false;
-        }
-        if (dig_filt != this->filter_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong digital filtering: got %u expected %u", dig_filt,
-                   this->filter_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for digital filtering. got %u", dig_filt);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_TEMPERATURE_OVER_SAMPLING: {
-        uint8_t osr2 = -1;
-        if (this->mlx_.getTemperatureOverSampling(osr2) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read temperature over sampling");
-          return false;
-        }
-        if (osr2 != this->temperature_oversampling_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong temperature over sampling: got %u expected %u", osr2,
-                   this->temperature_oversampling_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for temperature over sampling. got %u", osr2);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_TEMPERATURE_COMPENSATION: {
-        uint8_t enabled = 0;
-        if (this->mlx_.getTemperatureCompensation(enabled) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read temperature compensation");
-          return false;
-        }
-        if (enabled != this->temperature_compensation_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong temperature compensation: got %u expected %u", enabled,
-                   this->temperature_compensation_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for temperature compensation. got %u", enabled);
-        }
-        break;
-      }
-      case VERIFY_SETTINGS_HALLCONF: {
-        uint8_t hallconf = 0;
-        if (this->mlx_.getHallConf(hallconf) != MLX90393::STATUS_OK) {
-          ESP_LOGE(TAG, "verify error: failed to read hallconf");
-          return false;
-        }
-        if (hallconf != this->hallconf_) {
-          ESP_LOGW(TAG, "verify failed: read back wrong hallconf: got %u expected %u", hallconf, this->hallconf_);
-          return false;
-        } else {
-          ESP_LOGD(TAG, "verify succeeded for hallconf. got %u", hallconf);
-        }
-        break;
-      }
-      default:
-        break;
-    }
+    this->verify_setting_(stage);
 
     // advance to next verify stage
     stage = static_cast<VerifySettingsStage>(static_cast<int>(stage) + 1);
