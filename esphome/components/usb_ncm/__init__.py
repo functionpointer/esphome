@@ -23,11 +23,11 @@ ManualIP = usb_ncm_ns.struct("ManualIP")
 
 MANUAL_IP_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_STATIC_IP): cv.ipv4,
-        cv.Required(CONF_GATEWAY): cv.ipv4,
-        cv.Required(CONF_SUBNET): cv.ipv4,
-        cv.Optional(CONF_DNS1, default="0.0.0.0"): cv.ipv4,
-        cv.Optional(CONF_DNS2, default="0.0.0.0"): cv.ipv4,
+        cv.Required(CONF_STATIC_IP): cv.ipv4address,
+        cv.Required(CONF_GATEWAY): cv.ipv4address,
+        cv.Required(CONF_SUBNET): cv.ipv4address,
+        cv.Optional(CONF_DNS1, default="0.0.0.0"): cv.ipv4address,
+        cv.Optional(CONF_DNS2, default="0.0.0.0"): cv.ipv4address,
     }
 )
 
@@ -60,11 +60,11 @@ CONFIG_SCHEMA = cv.All(
 def manual_ip(config):
     return cg.StructInitializer(
         ManualIP,
-        ("static_ip", IPAddress(*config[CONF_STATIC_IP].args)),
-        ("gateway", IPAddress(*config[CONF_GATEWAY].args)),
-        ("subnet", IPAddress(*config[CONF_SUBNET].args)),
-        ("dns1", IPAddress(*config[CONF_DNS1].args)),
-        ("dns2", IPAddress(*config[CONF_DNS2].args)),
+        ("static_ip", IPAddress(*config[CONF_STATIC_IP].packed)),
+        ("gateway", IPAddress(*config[CONF_GATEWAY].packed)),
+        ("subnet", IPAddress(*config[CONF_SUBNET].packed)),
+        ("dns1", IPAddress(*config[CONF_DNS1].packed)),
+        ("dns2", IPAddress(*config[CONF_DNS2].packed)),
     )
 
 
