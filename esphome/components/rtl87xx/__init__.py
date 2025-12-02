@@ -6,6 +6,7 @@
 # in schema.py file in this directory.
 
 from esphome import pins
+import esphome.codegen as cg
 from esphome.components import libretiny
 from esphome.components.libretiny.const import (
     COMPONENT_RTL87XX,
@@ -15,10 +16,12 @@ from esphome.components.libretiny.const import (
 )
 from esphome.core import CORE
 
-from .boards import RTL87XX_BOARDS, RTL87XX_BOARD_PINS
+from .boards import RTL87XX_BOARD_PINS, RTL87XX_BOARDS
 
 CODEOWNERS = ["@kuba2k2"]
 AUTO_LOAD = ["libretiny"]
+IS_TARGET_PLATFORM = True
+
 
 COMPONENT_DATA = LibreTinyComponent(
     name=COMPONENT_RTL87XX,
@@ -43,6 +46,9 @@ CONFIG_SCHEMA.prepend_extra(_set_core_data)
 
 
 async def to_code(config):
+    # Use FreeRTOS 8.2.3+ for xTaskNotifyGive/ulTaskNotifyTake required by AsyncTCP 3.4.3+
+    # https://github.com/esphome/esphome/issues/10220
+    cg.add_platformio_option("custom_versions.freertos", "8.2.3")
     return await libretiny.component_to_code(config)
 
 
