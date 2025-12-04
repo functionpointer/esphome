@@ -40,19 +40,23 @@ class USBNCMComponent : public Component {
 
   network::IPAddresses get_ip_addresses();
   network::IPAddress get_dns_address(uint8_t num);
-  std::string get_use_address() const;
-  void set_use_address(const std::string &use_address);
+  const char *get_use_address() const;
+  void set_use_address(const char *use_address);
   void get_usb_ncm_mac_address_raw(uint8_t *mac);
   std::string get_usb_ncm_mac_address_pretty();
 
  protected:
   NCMEthernetlwIP eth;
 
-  std::string use_address_;
   optional<ManualIP> manual_ip_{};
 
   USBNCMComponentState state_{USBNCMComponentState::STOPPED};
   uint32_t connect_begin = 0;
+
+ private:
+  // Stores a pointer to a string literal (static storage duration).
+  // ONLY set from Python-generated code with string literals - never dynamic strings.
+  const char *use_address_{""};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

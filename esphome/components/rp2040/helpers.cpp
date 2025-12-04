@@ -10,6 +10,9 @@
 #endif
 #include <hardware/structs/rosc.h>
 #include <hardware/sync.h>
+#ifdef USE_USB_NCM
+#include "esphome/components/usb_ncm/usb_ncm_component.h"
+#endif
 
 namespace esphome {
 
@@ -49,13 +52,13 @@ LwIPLock::LwIPLock() {}
 LwIPLock::~LwIPLock() {}
 
 void get_mac_address_raw(uint8_t *mac) {  // NOLINT(readability-non-const-parameter)
-#defined(USE_USB_NCM)
+#ifdef USE_USB_NCM
   if (usb_ncm::global_usb_ncm_component != nullptr) {
     usb_ncm::global_usb_ncm_component->get_usb_ncm_mac_address_raw(mac);
   }
-#elif
+#endif
 #ifdef USE_WIFI
-WiFi.macAddress(mac);
+  WiFi.macAddress(mac);
 #endif
 }
 

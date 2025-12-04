@@ -98,14 +98,9 @@ bool USBNCMComponent::is_connected() { return this->state_ == USBNCMComponentSta
 
 void USBNCMComponent::set_manual_ip(const ManualIP &manual_ip) { this->manual_ip_ = manual_ip; }
 
-std::string USBNCMComponent::get_use_address() const {
-  if (this->use_address_.empty()) {
-    return App.get_name() + ".local";
-  }
-  return this->use_address_;
-}
+const char *USBNCMComponent::get_use_address() const { return this->use_address_; }
 
-void USBNCMComponent::set_use_address(const std::string &use_address) { this->use_address_ = use_address; }
+void USBNCMComponent::set_use_address(const char *use_address) { this->use_address_ = use_address; }
 
 void USBNCMComponent::get_usb_ncm_mac_address_raw(uint8_t *mac) { this->eth.macAddress(mac); }
 

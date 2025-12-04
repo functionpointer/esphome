@@ -13,7 +13,7 @@ from esphome.const import (
     CONF_USE_ADDRESS,
 )
 from esphome.core import CORE
-from esphome.coroutine import coroutine_with_priority
+from esphome.coroutine import CoroPriority, coroutine_with_priority
 
 CONFLICTS_WITH = ["wifi", "ethernet"]
 AUTO_LOAD = ["network"]
@@ -68,7 +68,7 @@ def manual_ip(config):
     )
 
 
-@coroutine_with_priority(60.0)
+@coroutine_with_priority(CoroPriority.COMMUNICATION)
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
