@@ -17,10 +17,12 @@ namespace esphome::ethernet {
 static const char *const TAG = "ethernet";
 
 void EthernetComponent::setup() {
+#ifdef USE_ETHERNET_SPI
   // Configure SPI pins
   SPI.setRX(this->miso_pin_);
   SPI.setTX(this->mosi_pin_);
   SPI.setSCK(this->clk_pin_);
+#endif
 
   // Toggle reset pin if configured
   if (this->reset_pin_ >= 0) {
@@ -39,6 +41,8 @@ void EthernetComponent::setup() {
   this->eth_ = new Wiznet5500lwIP(this->cs_pin_, SPI, this->interrupt_pin_);  // NOLINT
 #elif defined(USE_ETHERNET_ENC28J60)
   this->eth_ = new ENC28J60lwIP(this->cs_pin_, SPI, this->interrupt_pin_);  // NOLINT
+#elif defined(USE_ETHERNET_USB)
+  this->eth_ = new NCMEthernetlwIP();  // NOLINT
 #endif
 
   // Set hostname before begin() so the LWIP netif gets it
@@ -173,6 +177,8 @@ void EthernetComponent::dump_config() {
   type_str = "W5500";
 #elif defined(USE_ETHERNET_ENC28J60)
   type_str = "ENC28J60";
+#elif defined(USE_ETHERNET_USB)
+  type_str = "USB";
 #endif
   ESP_LOGCONFIG(TAG,
                 "Ethernet:\n"

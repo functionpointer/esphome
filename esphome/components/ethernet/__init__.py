@@ -120,6 +120,7 @@ ETHERNET_TYPES = {
     "DM9051": EthernetType.ETHERNET_TYPE_DM9051,
     "LAN8670": EthernetType.ETHERNET_TYPE_LAN8670,
     "ENC28J60": EthernetType.ETHERNET_TYPE_ENC28J60,
+    "USB": EthernetType.ETHERNET_TYPE_USB,
 }
 
 # PHY types that need compile-time defines for conditional compilation
@@ -136,6 +137,7 @@ _PHY_TYPE_TO_DEFINE = {
     "DM9051": "USE_ETHERNET_DM9051",
     "LAN8670": "USE_ETHERNET_LAN8670",
     "ENC28J60": "USE_ETHERNET_ENC28J60",
+    "USB": "USE_ETHERNET_USB",
 }
 
 
@@ -288,7 +290,9 @@ def _validate(config):
                     f"{config[CONF_TYPE]} PHY requires RMII interface and is only supported "
                     f"on ESP32 classic and ESP32-P4, not {variant}"
                 )
-    elif CORE.is_rp2040 and config[CONF_TYPE] not in RP2040_SPI_ETHERNET_TYPES:
+    elif CORE.is_rp2040 and config[CONF_TYPE] not in RP2040_SPI_ETHERNET_TYPES + [
+        "USB"
+    ]:
         raise cv.Invalid(
             f"Only {', '.join(RP2040_SPI_ETHERNET_TYPES)} are supported on RP2040, "
             f"not {config[CONF_TYPE]}"
@@ -382,6 +386,7 @@ CONFIG_SCHEMA = cv.All(
             "DM9051": SPI_SCHEMA,
             "ENC28J60": SPI_SCHEMA,
             "LAN8670": RMII_SCHEMA,
+            "USB": cv.All(BASE_SCHEMA, cv.only_on([Platform.RP2040])),
         },
         upper=True,
     ),
@@ -562,20 +567,24 @@ async def _to_code_esp32(var: cg.Pvariable, config: ConfigType) -> None:
 
 
 async def _to_code_rp2040(var: cg.Pvariable, config: ConfigType) -> None:
-    cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
-    cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
-    cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
-    cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
+    if config[CONF_TYPE] in RP2040_SPI_ETHERNET_TYPES:
+        cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
+        cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
+        cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
+        cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
+        cg.add_define("USE_ETHERNET_SPI")
+
     if CONF_INTERRUPT_PIN in config:
         cg.add(var.set_interrupt_pin(config[CONF_INTERRUPT_PIN]))
     if CONF_RESET_PIN in config:
         cg.add(var.set_reset_pin(config[CONF_RESET_PIN]))
 
-    cg.add_define("USE_ETHERNET_SPI")
     if config[CONF_TYPE] == "ENC28J60":
         cg.add_library("lwIP_enc28j60", None)
-    else:
+    elif config[CONF_TYPE] == "W5500":
         cg.add_library("lwIP_w5500", None)
+    elif config[CONF_TYPE] == "USB":
+        cg.add_library("lwIP_USB_NCM", None)
 
 
 def _final_validate_rmii_pins(config: ConfigType) -> None:
