@@ -18,7 +18,7 @@ static const char *const TAG = "ethernet";
 
 void EthernetComponent::setup() {
   // Configure SPI pins
-#if !defined(USE_ETHERNET_W6300)
+#if defined(USE_ETHERNET_SPI) && !defined(USE_ETHERNET_W6300)
   SPI.setRX(this->miso_pin_);
   SPI.setTX(this->mosi_pin_);
   SPI.setSCK(this->clk_pin_);
@@ -51,6 +51,8 @@ void EthernetComponent::setup() {
   this->eth_ = new Wiznet6300lwIPFixed(this->cs_pin_, SPI, this->interrupt_pin_);  // NOLINT
 #elif defined(USE_ETHERNET_ENC28J60)
   this->eth_ = new ENC28J60lwIP(this->cs_pin_, SPI, this->interrupt_pin_);  // NOLINT
+#elif defined(USE_ETHERNET_USB)
+  this->eth_ = new NCMEthernetlwIP();  // NOLINT
 #endif
 
   // Set hostname before begin() so the LWIP netif gets it
@@ -198,6 +200,8 @@ void EthernetComponent::dump_config() {
   type_str = "W6300";
 #elif defined(USE_ETHERNET_ENC28J60)
   type_str = "ENC28J60";
+#elif defined(USE_ETHERNET_USB)
+  type_str = "USB";
 #endif
 #if defined(USE_ETHERNET_W6300)
   // W6300 uses PIO QSPI with hardcoded pins — SPI pin fields are not used
@@ -267,9 +271,11 @@ eth_duplex_t EthernetComponent::get_duplex_mode() {
 }
 
 eth_speed_t EthernetComponent::get_link_speed() {
-#ifdef USE_ETHERNET_ENC28J60
+#if defined(USE_ETHERNET_ENC28J60)
   // ENC28J60 is 10Mbps only
   return ETH_SPEED_10M;
+#elif defined(USE_ETHERNET_USB)
+  return ETH_SPEED_USB;
 #else
   // W5100 and W5500 are 100Mbps
   return ETH_SPEED_100M;

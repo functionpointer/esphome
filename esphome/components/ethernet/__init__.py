@@ -125,6 +125,7 @@ ETHERNET_TYPES = {
     "ENC28J60": EthernetType.ETHERNET_TYPE_ENC28J60,
     "W6100": EthernetType.ETHERNET_TYPE_W6100,
     "W6300": EthernetType.ETHERNET_TYPE_W6300,
+    "USB": EthernetType.ETHERNET_TYPE_USB,
 }
 
 # PHY types that need compile-time defines for conditional compilation
@@ -144,6 +145,7 @@ _PHY_TYPE_TO_DEFINE = {
     "ENC28J60": "USE_ETHERNET_ENC28J60",
     "W6100": "USE_ETHERNET_W6100",
     "W6300": "USE_ETHERNET_W6300",
+    "USB": "USE_ETHERNET_USB",
 }
 
 
@@ -175,13 +177,14 @@ _ALWAYS_EXTERNAL_IDF_COMPONENTS = {"LAN8670", "ENC28J60"}
 # ESP32-only SPI ethernet types (W5100 is RP2040-only, no ESP-IDF driver)
 SPI_ETHERNET_TYPES = {"W5500", "DM9051", "ENC28J60"}
 # RP2040-supported ethernet types (SPI and PIO QSPI)
-RP2040_ETHERNET_TYPES = {"W5100", "W5500", "W6100", "W6300", "ENC28J60"}
+RP2040_ETHERNET_TYPES = {"W5100", "W5500", "W6100", "W6300", "ENC28J60", "USB"}
 _RP2040_SPI_LIBRARIES = {
     "W5100": "lwIP_w5100",
     "W5500": "lwIP_w5500",
     "ENC28J60": "lwIP_enc28j60",
     "W6100": "lwIP_w6100",
     "W6300": "lwIP_w6300",
+    "USB": "lwIP_USB_NCM",
 }
 SPI_ETHERNET_DEFAULT_POLLING_INTERVAL = TimePeriodMilliseconds(milliseconds=10)
 
@@ -436,6 +439,7 @@ CONFIG_SCHEMA = cv.All(
             "W6100": cv.All(SPI_SCHEMA, cv.only_on([Platform.RP2040])),
             "W6300": cv.All(SPI_SCHEMA, cv.only_on([Platform.RP2040])),
             "LAN8670": RMII_SCHEMA,
+            "USB": cv.All(BASE_SCHEMA, cv.only_on([Platform.RP2040])),
         },
         upper=True,
     ),
@@ -596,16 +600,17 @@ async def _to_code_esp32(var: cg.Pvariable, config: ConfigType) -> None:
 
 
 async def _to_code_rp2040(var: cg.Pvariable, config: ConfigType) -> None:
-    cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
-    cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
-    cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
-    cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
-    if CONF_INTERRUPT_PIN in config:
-        cg.add(var.set_interrupt_pin(config[CONF_INTERRUPT_PIN]))
-    if CONF_RESET_PIN in config:
-        cg.add(var.set_reset_pin(config[CONF_RESET_PIN]))
+    if config[CONF_TYPE] != "USB":
+        cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
+        cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
+        cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
+        cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
+        if CONF_INTERRUPT_PIN in config:
+            cg.add(var.set_interrupt_pin(config[CONF_INTERRUPT_PIN]))
+        if CONF_RESET_PIN in config:
+            cg.add(var.set_reset_pin(config[CONF_RESET_PIN]))
 
-    cg.add_define("USE_ETHERNET_SPI")
+        cg.add_define("USE_ETHERNET_SPI")
     cg.add_library(_RP2040_SPI_LIBRARIES[config[CONF_TYPE]], None)
 
 
