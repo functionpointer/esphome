@@ -611,6 +611,8 @@ async def _to_code_rp2040(var: cg.Pvariable, config: ConfigType) -> None:
             cg.add(var.set_reset_pin(config[CONF_RESET_PIN]))
 
         cg.add_define("USE_ETHERNET_SPI")
+    else:
+        cg.add_define("USE_ETHERNET_USB")
     cg.add_library(_RP2040_SPI_LIBRARIES[config[CONF_TYPE]], None)
 
 
