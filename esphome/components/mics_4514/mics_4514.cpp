@@ -3,10 +3,11 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace mics_4514 {
+namespace esphome::mics_4514 {
 
-static const char *const TAG = "mics_4514";
+ESPHOME_LOG_TAG(TAG, "mics_4514");
+
+static constexpr uint32_t WARMUP_TIMEOUT_ID = 0;
 
 static const uint8_t SENSOR_REGISTER = 0x04;
 static const uint8_t POWER_MODE_REGISTER = 0x0a;
@@ -19,7 +20,7 @@ void MICS4514Component::setup() {
     power_mode = 0x01;
     this->write_register(POWER_MODE_REGISTER, &power_mode, 1);
     delay(100);  // NOLINT
-    this->set_timeout("warmup", 3 * 60 * 1000, [this]() { this->warmed_up_ = true; });
+    this->set_timeout(WARMUP_TIMEOUT_ID, 3 * 60 * 1000, [this]() { this->warmed_up_ = true; });
     this->status_set_warning();
     return;
   }
@@ -42,12 +43,9 @@ void MICS4514Component::update() {
     return;
   }
   uint8_t data[6];
-  if (this->read_register(SENSOR_REGISTER, data, 6) != i2c::ERROR_OK) {
-    this->status_set_warning();
+  if (!this->status_comm_result(this->read_register(SENSOR_REGISTER, data, 6) == i2c::ERROR_OK))
     return;
-  }
-  this->status_clear_warning();
-  ESP_LOGV(TAG, "Got data: %02X %02X %02X %02X %02X %02X", data[0], data[1], data[2], data[3], data[4], data[5]);
+  ESP_LOGV_HEX(TAG, data, sizeof(data), sizeof(data), "Got data: %s");
   uint16_t ox = encode_uint16(data[0], data[1]);
   uint16_t red = encode_uint16(data[2], data[3]);
   uint16_t power = encode_uint16(data[4], data[5]);
@@ -72,64 +70,42 @@ void MICS4514Component::update() {
     float co = 0.0f;
     if (red_f > 3.4f) {
       co = 0.0;
-    } else if (red_f < 0.01) {
+    } else if (red_f < 0.01f) {
       co = 1000.0;
     } else {
-      co = 4.2 / pow(red_f, 1.2);
+      co = 4.2f / powf(red_f, 1.2f);
     }
     this->carbon_monoxide_sensor_->publish_state(co);
   }
 
   if (this->nitrogen_dioxide_sensor_ != nullptr) {
-    float nitrogendioxide = 0.0f;
-    if (ox_f < 0.3f) {
-      nitrogendioxide = 0.0;
-    } else {
-      nitrogendioxide = 0.164 * pow(ox_f, 0.975);
-    }
+    const float nitrogendioxide = ox_f < 0.3f ? 0.0f : 0.164f * powf(ox_f, 0.975f);
     this->nitrogen_dioxide_sensor_->publish_state(nitrogendioxide);
   }
 
   if (this->methane_sensor_ != nullptr) {
-    float methane = 0.0f;
-    if (red_f > 0.9f || red_f < 0.5) {  // outside the range->unlikely
-      methane = 0.0;
-    } else {
-      methane = 630 / pow(red_f, 4.4);
-    }
+    // 0 outside the sensor's range
+    const float methane = (red_f > 0.9f || red_f < 0.5f) ? 0.0f : 630 / powf(red_f, 4.4f);
     this->methane_sensor_->publish_state(methane);
   }
 
   if (this->ethanol_sensor_ != nullptr) {
-    float ethanol = 0.0f;
-    if (red_f > 1.0f || red_f < 0.02) {  // outside the range->unlikely
-      ethanol = 0.0;
-    } else {
-      ethanol = 1.52 / pow(red_f, 1.55);
-    }
+    // 0 outside the sensor's range
+    const float ethanol = (red_f > 1.0f || red_f < 0.02f) ? 0.0f : 1.52f / powf(red_f, 1.55f);
     this->ethanol_sensor_->publish_state(ethanol);
   }
 
   if (this->hydrogen_sensor_ != nullptr) {
-    float hydrogen = 0.0f;
-    if (red_f > 0.9f || red_f < 0.02) {  // outside the range->unlikely
-      hydrogen = 0.0;
-    } else {
-      hydrogen = 0.85 / pow(red_f, 1.75);
-    }
+    // 0 outside the sensor's range
+    const float hydrogen = (red_f > 0.9f || red_f < 0.02f) ? 0.0f : 0.85f / powf(red_f, 1.75f);
     this->hydrogen_sensor_->publish_state(hydrogen);
   }
 
   if (this->ammonia_sensor_ != nullptr) {
-    float ammonia = 0.0f;
-    if (red_f > 0.98f || red_f < 0.2532) {  // outside the ammonia range->unlikely
-      ammonia = 0.0;
-    } else {
-      ammonia = 0.9 / pow(red_f, 4.6);
-    }
+    // 0 outside the sensor's range
+    const float ammonia = (red_f > 0.98f || red_f < 0.2532f) ? 0.0f : 0.9f / powf(red_f, 4.6f);
     this->ammonia_sensor_->publish_state(ammonia);
   }
 }
 
-}  // namespace mics_4514
-}  // namespace esphome
+}  // namespace esphome::mics_4514

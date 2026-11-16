@@ -7,8 +7,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/i2c/i2c.h"
 
-namespace esphome {
-namespace vl53l0x {
+namespace esphome::vl53l0x {
 
 struct SequenceStepEnables {
   bool tcc, msrc, dss, pre_range, final_range;
@@ -23,7 +22,7 @@ struct SequenceStepTimeouts {
 
 enum VcselPeriodType { VCSEL_PERIOD_PRE_RANGE, VCSEL_PERIOD_FINAL_RANGE };
 
-class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c::I2CDevice {
+class VL53L0XSensor final : public sensor::Sensor, public PollingComponent, public i2c::I2CDevice {
  public:
   VL53L0XSensor();
 
@@ -62,7 +61,9 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   uint32_t measurement_timing_budget_us_{0};
   bool initiated_read_{false};
   bool waiting_for_interrupt_{false};
-  uint8_t stop_variable_;
+  uint8_t stop_variable_{0};
+  // Updates that found the measurement still pending; past the grace period the next one restarts it
+  uint8_t pending_updates_{0};
 
   uint32_t timeout_us_{};
 
@@ -70,5 +71,4 @@ class VL53L0XSensor : public sensor::Sensor, public PollingComponent, public i2c
   static bool enable_pin_setup_complete;           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 };
 
-}  // namespace vl53l0x
-}  // namespace esphome
+}  // namespace esphome::vl53l0x

@@ -8,8 +8,7 @@
 
 #include "ltr_definitions.h"
 
-namespace esphome {
-namespace ltr_als_ps {
+namespace esphome::ltr_als_ps {
 
 enum LtrDataAvail : uint8_t { LTR_NO_DATA, LTR_BAD_DATA, LTR_DATA_OK };
 
@@ -49,14 +48,13 @@ class LTRAlsPsComponent : public PollingComponent, public i2c::I2CDevice {
   void set_ps_cooldown_time_s(uint16_t time) { this->ps_cooldown_time_s_ = time; }
   void set_ps_gain(PsGain gain) { this->ps_gain_ = gain; }
 
-  // Sensors setters
-  //
-  void set_ambient_light_sensor(sensor::Sensor *sensor) { this->ambient_light_sensor_ = sensor; }
-  void set_full_spectrum_counts_sensor(sensor::Sensor *sensor) { this->full_spectrum_counts_sensor_ = sensor; }
-  void set_infrared_counts_sensor(sensor::Sensor *sensor) { this->infrared_counts_sensor_ = sensor; }
-  void set_actual_gain_sensor(sensor::Sensor *sensor) { this->actual_gain_sensor_ = sensor; }
-  void set_actual_integration_time_sensor(sensor::Sensor *sensor) { this->actual_integration_time_sensor_ = sensor; }
-  void set_proximity_counts_sensor(sensor::Sensor *sensor) { this->proximity_counts_sensor_ = sensor; }
+  template<typename F> void add_on_ps_high_trigger_callback(F &&callback) {
+    this->on_ps_high_trigger_callback_.add(std::forward<F>(callback));
+  }
+
+  template<typename F> void add_on_ps_low_trigger_callback(F &&callback) {
+    this->on_ps_low_trigger_callback_.add(std::forward<F>(callback));
+  }
 
  protected:
   //
@@ -134,16 +132,14 @@ class LTRAlsPsComponent : public PollingComponent, public i2c::I2CDevice {
   uint8_t read_data_tries_{0};
   PsGain ps_gain_{PsGain::PS_GAIN_16};
 
-  //
-  //   Sensors for publishing data
-  //
-  sensor::Sensor *infrared_counts_sensor_{nullptr};          // direct reading CH1, infrared only
-  sensor::Sensor *full_spectrum_counts_sensor_{nullptr};     // direct reading CH0, infrared + visible light
-  sensor::Sensor *ambient_light_sensor_{nullptr};            // calculated lux
-  sensor::Sensor *actual_gain_sensor_{nullptr};              // actual gain of reading
-  sensor::Sensor *actual_integration_time_sensor_{nullptr};  // actual integration time
-  sensor::Sensor *proximity_counts_sensor_{nullptr};         // proximity sensor
+  SUB_SENSOR(ambient_light)            // calculated lux
+  SUB_SENSOR(full_spectrum_counts)     // direct reading CH0, infrared + visible light
+  SUB_SENSOR(infrared_counts)          // direct reading CH1, infrared only
+  SUB_SENSOR(actual_gain)              // actual gain of reading
+  SUB_SENSOR(actual_integration_time)  // actual integration time
+  SUB_SENSOR(proximity_counts)         // proximity sensor
 
+ protected:
   bool is_any_als_sensor_enabled_() const {
     return this->ambient_light_sensor_ != nullptr || this->full_spectrum_counts_sensor_ != nullptr ||
            this->infrared_counts_sensor_ != nullptr || this->actual_gain_sensor_ != nullptr ||
@@ -151,36 +147,7 @@ class LTRAlsPsComponent : public PollingComponent, public i2c::I2CDevice {
   }
   bool is_any_ps_sensor_enabled_() const { return this->proximity_counts_sensor_ != nullptr; }
 
-  //
-  // Trigger section for the automations
-  //
-  friend class LTRPsHighTrigger;
-  friend class LTRPsLowTrigger;
-
   CallbackManager<void()> on_ps_high_trigger_callback_;
   CallbackManager<void()> on_ps_low_trigger_callback_;
-
-  void add_on_ps_high_trigger_callback_(std::function<void()> callback) {
-    this->on_ps_high_trigger_callback_.add(std::move(callback));
-  }
-
-  void add_on_ps_low_trigger_callback_(std::function<void()> callback) {
-    this->on_ps_low_trigger_callback_.add(std::move(callback));
-  }
 };
-
-class LTRPsHighTrigger : public Trigger<> {
- public:
-  explicit LTRPsHighTrigger(LTRAlsPsComponent *parent) {
-    parent->add_on_ps_high_trigger_callback_([this]() { this->trigger(); });
-  }
-};
-
-class LTRPsLowTrigger : public Trigger<> {
- public:
-  explicit LTRPsLowTrigger(LTRAlsPsComponent *parent) {
-    parent->add_on_ps_low_trigger_callback_([this]() { this->trigger(); });
-  }
-};
-}  // namespace ltr_als_ps
-}  // namespace esphome
+}  // namespace esphome::ltr_als_ps

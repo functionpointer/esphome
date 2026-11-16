@@ -2,10 +2,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace noblex {
+namespace esphome::noblex {
 
-static const char *const TAG = "noblex.climate";
+ESPHOME_LOG_TAG(TAG, "noblex.climate");
 
 const uint16_t NOBLEX_HEADER_MARK = 9000;
 const uint16_t NOBLEX_HEADER_SPACE = 4500;
@@ -105,8 +104,7 @@ void NoblexClimate::transmit_state() {
   }
   crc = reverse_bits(uint8_t(crc & 0x0F)) >> 4;
 
-  ESP_LOGD(TAG, "Sending noblex code: %02X%02X %02X%02X %02X%02X %02X%02X", remote_state[0], remote_state[1],
-           remote_state[2], remote_state[3], remote_state[4], remote_state[5], remote_state[6], remote_state[7]);
+  ESP_LOGD_HEX(TAG, remote_state, sizeof(remote_state), sizeof(remote_state), "Sending noblex code: %s");
 
   ESP_LOGV(TAG, "CRC: %01X", crc);
 
@@ -219,9 +217,8 @@ bool NoblexClimate::on_receive(remote_base::RemoteReceiveData data) {
     return false;
   }
 
-  ESP_LOGD(TAG, "Received noblex code: %02X%02X %02X%02X %02X%02X %02X%02X", this->remote_state_[0],
-           this->remote_state_[1], this->remote_state_[2], this->remote_state_[3], this->remote_state_[4],
-           this->remote_state_[5], this->remote_state_[6], this->remote_state_[7]);
+  ESP_LOGD_HEX(TAG, this->remote_state_, sizeof(this->remote_state_), sizeof(this->remote_state_),
+               "Received noblex code: %s");
 
   auto powered_on = false;
   if ((this->remote_state_[0] & NOBLEX_POWER) == NOBLEX_POWER) {
@@ -254,6 +251,8 @@ bool NoblexClimate::on_receive(remote_base::RemoteReceiveData data) {
         break;
       case IRNoblexMode::IR_NOBLEX_MODE_HEAT:
         this->mode = climate::CLIMATE_MODE_HEAT;
+        break;
+      default:
         break;
     }
   }
@@ -299,5 +298,4 @@ bool NoblexClimate::on_receive(remote_base::RemoteReceiveData data) {
   return true;
 }  // end on_receive()
 
-}  // namespace noblex
-}  // namespace esphome
+}  // namespace esphome::noblex

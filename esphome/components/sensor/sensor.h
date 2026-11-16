@@ -8,6 +8,7 @@
 #include "esphome/components/sensor/filter.h"
 #endif
 
+#include <cmath>
 #include <initializer_list>
 #include <memory>
 
@@ -95,14 +96,21 @@ class Sensor : public EntityBase {
 #endif
 
   /// Getter-syntax for .state.
-  float get_state() const;
-  /// Getter-syntax for .raw_state
-  float get_raw_state() const;
+  float get_state() const { return this->state; }
+  /// Get the last state received by publish_state(), before any filters were applied.
+  float get_raw_state() const {
+#ifdef USE_SENSOR_FILTER
+    return this->raw_state_;
+#else
+    return this->state;  // No filters compiled in, raw == filtered
+#endif
+  }
 
   /** Publish a new state to the front-end.
    *
-   * First, the new state will be assigned to the raw_value. Then it's passed through all filters
-   * until it finally lands in the .value member variable and a callback is issued.
+   * The value is passed through the filter chain (when filters are compiled in) before landing in
+   * the `state` member and triggering the state callback. The pre-filter value is available via
+   * get_raw_state().
    *
    * @param state The state as a floating point number.
    */
@@ -111,9 +119,17 @@ class Sensor : public EntityBase {
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
   /// Add a callback that will be called every time a filtered value arrives.
-  void add_on_state_callback(std::function<void(float)> &&callback);
+  template<typename F> void add_on_state_callback(F &&callback) { this->callback_.add(std::forward<F>(callback)); }
   /// Add a callback that will be called every time the sensor sends a raw value.
-  void add_on_raw_state_callback(std::function<void(float)> &&callback);
+  /// When USE_SENSOR_FILTER is not enabled, delegates to the regular callback
+  /// since raw state equals filtered state without filter support compiled in.
+  template<typename F> void add_on_raw_state_callback(F &&callback) {
+#ifdef USE_SENSOR_FILTER
+    this->raw_callback_.add(std::forward<F>(callback));
+#else
+    this->callback_.add(std::forward<F>(callback));
+#endif
+  }
 
   /** This member variable stores the last state that has passed through all filters.
    *
@@ -124,17 +140,14 @@ class Sensor : public EntityBase {
    */
   float state;
 
-  /** This member variable stores the current raw state of the sensor, without any filters applied.
-   *
-   * Unlike .state,this will be updated immediately when publish_state is called.
-   */
-  float raw_state;
-
   void internal_send_state_to_frontend(float state);
 
  protected:
+#ifdef USE_SENSOR_FILTER
+  float raw_state_{NAN};                           ///< The last state passed to publish_state(), before filters.
   LazyCallbackManager<void(float)> raw_callback_;  ///< Storage for raw state callbacks.
-  LazyCallbackManager<void(float)> callback_;      ///< Storage for filtered state callbacks.
+#endif
+  LazyCallbackManager<void(float)> callback_;  ///< Storage for filtered state callbacks.
 
 #ifdef USE_SENSOR_FILTER
   Filter *filter_list_{nullptr};  ///< Store all active filters.
@@ -152,5 +165,21 @@ class Sensor : public EntityBase {
     uint8_t reserved : 5;  // Reserved for future use
   } sensor_flags_{};
 };
+
+/** Read another sensor as an input, such as the temperature a gas sensor compensates for.
+ *
+ * @return The state of `sensor` when it lies in [min, max] (both included); NAN when `sensor` is null, its
+ *         state is NAN (as it is before the first publish) or its state is out of range.
+ *         The caller decides whether to skip or fall back, and what to log.
+ */
+inline float source_value(const Sensor *sensor, float min, float max) {
+  if (sensor == nullptr)
+    return NAN;
+  const float value = sensor->state;
+  // isnan first: callers test the result with isnan, and the compiler can reuse this check
+  if (std::isnan(value) || value < min || value > max)
+    return NAN;
+  return value;
+}
 
 }  // namespace esphome::sensor

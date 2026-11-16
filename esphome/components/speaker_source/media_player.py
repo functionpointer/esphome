@@ -2,6 +2,9 @@ from esphome import automation
 import esphome.codegen as cg
 from esphome.components import audio, media_player, media_source, speaker
 from esphome.components.const import (
+    CONF_ANNOUNCEMENT_VOLUME,
+    CONF_BITRATE,
+    CONF_SOURCES,
     CONF_VOLUME_INCREMENT,
     CONF_VOLUME_INITIAL,
     CONF_VOLUME_MAX,
@@ -15,10 +18,8 @@ from esphome.const import (
     CONF_NUM_CHANNELS,
     CONF_SAMPLE_RATE,
     CONF_SPEAKER,
+    CONF_VOLUME,
 )
-from esphome.core import ID
-from esphome.core.entity_helpers import inherit_property_from
-from esphome.cpp_generator import MockObj, TemplateArgsType
 from esphome.types import ConfigType
 
 AUTO_LOAD = ["audio"]
@@ -32,7 +33,6 @@ CONF_ON_MUTE = "on_mute"
 CONF_PIPELINE = "pipeline"
 CONF_ON_UNMUTE = "on_unmute"
 CONF_ON_VOLUME = "on_volume"
-CONF_SOURCES = "sources"
 
 speaker_source_ns = cg.esphome_ns.namespace("speaker_source")
 
@@ -60,58 +60,10 @@ _PIPELINE_INFO = {
     ),
 }
 
-SetPlaylistDelayAction = speaker_source_ns.class_(
-    "SetPlaylistDelayAction", automation.Action
+
+_validate_pipeline = media_player.validate_preferred_format(
+    "speaker_source media_player", CONF_SPEAKER
 )
-
-
-FORMAT_MAPPING = {
-    "FLAC": "flac",
-    "MP3": "mp3",
-    "OPUS": "opus",
-    "WAV": "wav",
-}
-
-
-# Returns a media_player.MediaPlayerSupportedFormat struct with the configured
-# format, sample rate, number of channels, purpose, and bytes per sample
-def _get_supported_format_struct(pipeline: ConfigType, purpose: MockObj):
-    args = [
-        media_player.MediaPlayerSupportedFormat,
-    ]
-
-    args.append(("format", FORMAT_MAPPING[pipeline[CONF_FORMAT]]))
-
-    args.append(("sample_rate", pipeline[CONF_SAMPLE_RATE]))
-    args.append(("num_channels", pipeline[CONF_NUM_CHANNELS]))
-    args.append(("purpose", purpose))
-
-    # Omit sample_bytes for MP3: ffmpeg transcoding in Home Assistant fails
-    # if the number of bytes per sample is specified for MP3.
-    if pipeline[CONF_FORMAT] != "MP3":
-        args.append(("sample_bytes", 2))
-
-    return cg.StructInitializer(*args)
-
-
-def _validate_pipeline(config: ConfigType) -> ConfigType:
-    # Inherit settings from speaker if not manually set
-    inherit_property_from(CONF_NUM_CHANNELS, CONF_SPEAKER)(config)
-    inherit_property_from(CONF_SAMPLE_RATE, CONF_SPEAKER)(config)
-
-    # Opus only supports 48 kHz
-    if config.get(CONF_FORMAT) == "OPUS" and config.get(CONF_SAMPLE_RATE) != 48000:
-        raise cv.Invalid("Opus only supports a sample rate of 48000 Hz")
-
-    audio.final_validate_audio_schema(
-        "speaker_source media_player",
-        audio_device=CONF_SPEAKER,
-        bits_per_sample=16,
-        channels=config.get(CONF_NUM_CHANNELS),
-        sample_rate=config.get(CONF_SAMPLE_RATE),
-    )(config)
-
-    return config
 
 
 PIPELINE_SCHEMA = cv.Schema(
@@ -127,6 +79,7 @@ PIPELINE_SCHEMA = cv.Schema(
         cv.Optional(CONF_FORMAT, default="FLAC"): cv.enum(audio.AUDIO_FILE_TYPE_ENUM),
         cv.Optional(CONF_SAMPLE_RATE): cv.int_range(min=1),
         cv.Optional(CONF_NUM_CHANNELS): cv.int_range(1, 2),
+        cv.Optional(CONF_BITRATE): media_player.validate_mp3_bitrate,
     }
 )
 
@@ -174,6 +127,17 @@ def _validate_volume_settings(config: ConfigType) -> ConfigType:
     return config
 
 
+def _validate_announcement_volume(config: ConfigType) -> ConfigType:
+    # With a single pipeline, announcements and media share one playlist, so there is no idle announcement to tell apart
+    if CONF_ANNOUNCEMENT_VOLUME in config and not (
+        CONF_ANNOUNCEMENT_PIPELINE in config and CONF_MEDIA_PIPELINE in config
+    ):
+        raise cv.Invalid(
+            f"{CONF_ANNOUNCEMENT_VOLUME} requires both {CONF_ANNOUNCEMENT_PIPELINE} and {CONF_MEDIA_PIPELINE}"
+        )
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -181,6 +145,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_VOLUME_INITIAL, default=0.5): cv.percentage,
             cv.Optional(CONF_VOLUME_MAX, default=1.0): cv.percentage,
             cv.Optional(CONF_VOLUME_MIN, default=0.0): cv.percentage,
+            cv.Optional(CONF_ANNOUNCEMENT_VOLUME): cv.percentage,
             cv.Optional(CONF_ANNOUNCEMENT_PIPELINE): PIPELINE_SCHEMA,
             cv.Optional(CONF_MEDIA_PIPELINE): PIPELINE_SCHEMA,
             cv.Optional(CONF_ON_MUTE): automation.validate_automation(single=True),
@@ -194,35 +159,14 @@ CONFIG_SCHEMA = cv.All(
     cv.has_at_least_one_key(CONF_ANNOUNCEMENT_PIPELINE, CONF_MEDIA_PIPELINE),
     _validate_no_shared_resources,
     _validate_volume_settings,
+    _validate_announcement_volume,
 )
 
 
 def _final_validate_codecs(config: ConfigType) -> ConfigType:
-    # "NONE" means the pipeline accepts any format at runtime, so all optional codecs must be available.
-    # When a specific format is set, only that codec is requested.
-    needed_formats: set[str] = set()
-    need_all = False
-
-    for pipeline_key in (CONF_ANNOUNCEMENT_PIPELINE, CONF_MEDIA_PIPELINE):
-        if pipeline := config.get(pipeline_key):
-            fmt = pipeline[CONF_FORMAT]
-            if fmt == "NONE":
-                need_all = True
-            else:
-                needed_formats.add(fmt)
-
-    if need_all:
-        audio.request_flac_support()
-        audio.request_mp3_support()
-        audio.request_opus_support()
-    else:
-        if "FLAC" in needed_formats:
-            audio.request_flac_support()
-        if "MP3" in needed_formats:
-            audio.request_mp3_support()
-        if "OPUS" in needed_formats:
-            audio.request_opus_support()
-
+    media_player.request_codecs_for_format_configs(
+        config, [CONF_ANNOUNCEMENT_PIPELINE, CONF_MEDIA_PIPELINE]
+    )
     return config
 
 
@@ -247,6 +191,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_volume_initial(config[CONF_VOLUME_INITIAL]))
     cg.add(var.set_volume_max(config[CONF_VOLUME_MAX]))
     cg.add(var.set_volume_min(config[CONF_VOLUME_MIN]))
+    cg.add_optional(var.set_announcement_volume, config.get(CONF_ANNOUNCEMENT_VOLUME))
 
     for pipeline_key, (pipeline_enum, purpose) in _PIPELINE_INFO.items():
         if pipeline_config := config.get(pipeline_key):
@@ -264,7 +209,9 @@ async def to_code(config: ConfigType) -> None:
                 cg.add(
                     var.set_format(
                         pipeline_enum,
-                        _get_supported_format_struct(pipeline_config, purpose),
+                        media_player.build_supported_format_struct(
+                            pipeline_config, purpose
+                        ),
                     )
                 )
 
@@ -297,24 +244,24 @@ SET_PLAYLIST_DELAY_ACTION_SCHEMA = cv.Schema(
 )
 
 
-@automation.register_action(
+automation.register_apply_action(
     "speaker_source.set_playlist_delay",
-    SetPlaylistDelayAction,
     SET_PLAYLIST_DELAY_ACTION_SCHEMA,
-    synchronous=True,
+    automation.ApplyCall(
+        "set_playlist_delay_ms({}, {})",
+        ((CONF_PIPELINE, cg.uint8), (CONF_DELAY, cg.uint32)),
+    ),
 )
-async def set_playlist_delay_action_to_code(
-    config: ConfigType,
-    action_id: ID,
-    template_arg: cg.TemplateArguments,
-    args: TemplateArgsType,
-) -> MockObj:
-    parent = await cg.get_variable(config[CONF_ID])
-    var = cg.new_Pvariable(action_id, template_arg, parent)
 
-    cg.add(var.set_pipeline(config[CONF_PIPELINE]))
 
-    template_ = await cg.templatable(config[CONF_DELAY], args, cg.uint32)
-    cg.add(var.set_delay(template_))
-
-    return var
+automation.register_apply_action(
+    "speaker_source.set_announcement_volume",
+    cv.maybe_simple_value(
+        {
+            cv.GenerateID(): cv.use_id(SpeakerSourceMediaPlayer),
+            cv.Required(CONF_VOLUME): cv.templatable(cv.percentage),
+        },
+        key=CONF_VOLUME,
+    ),
+    automation.ApplyField(CONF_VOLUME, "set_announcement_volume", cg.float_),
+)

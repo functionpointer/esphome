@@ -2,10 +2,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace lc709203f {
+namespace esphome::lc709203f {
 
-static const char *const TAG = "lc709203f.sensor";
+ESPHOME_LOG_TAG(TAG, "lc709203f.sensor");
 
 // Device I2C address. This address is fixed.
 static const uint8_t LC709203F_I2C_ADDR_DEFAULT = 0x0B;
@@ -46,7 +45,7 @@ void Lc709203f::setup() {
   //  until a device reset.
   //
   //  This device can be picky about I2C communication and can error out occasionally. The
-  //  get/set register functions impelment retry logic to retry the I2C transactions. The
+  //  get/set register functions implement retry logic to retry the I2C transactions. The
   //  initialization code checks the return code from those functions. If they don't return
   //  NO_ERROR (0x00), that part of the initialization aborts and will be retried on the next
   //  call to update().
@@ -151,7 +150,8 @@ void Lc709203f::dump_config() {
                 "  Pack Size: %d mAH\n"
                 "  Pack APA: 0x%02X\n"
                 "  Pack Rated Voltage: 3.%sV",
-                this->pack_size_, this->apa_, this->pack_voltage_ == 0x0000 ? "8" : "7");
+                this->pack_size_, this->apa_,
+                this->pack_voltage_ == 0x0000 ? LOG_STR_LITERAL("8") : LOG_STR_LITERAL("7"));
   LOG_I2C_DEVICE(this);
   LOG_UPDATE_INTERVAL(this);
   LOG_SENSOR("  ", "Voltage", this->voltage_sensor_);
@@ -175,7 +175,7 @@ uint8_t Lc709203f::get_register_(uint8_t register_to_read, uint16_t *register_va
 
   for (uint8_t i = 0; i <= LC709203F_I2C_RETRY_COUNT; i++) {
     // Note: the read_register() function does not send a stop between the write and
-    //  the read portions of the I2C transation when you set the last variable to 'false'
+    //  the read portions of the I2C transaction when you set the last variable to 'false'
     //  as we do below. Some of the other I2C read functions such as the generic read()
     //  function will send a stop between the read and the write portion of the I2C
     //  transaction. This is bad in this case and will result in reading nothing but 0xFFFF
@@ -192,7 +192,7 @@ uint8_t Lc709203f::get_register_(uint8_t register_to_read, uint16_t *register_va
       snprintf(buf, sizeof(buf), "CRC error reading from register 0x%02X", register_to_read);
       this->status_set_warning(buf);
     } else {
-      *register_value = ((uint16_t) read_buffer[4] << 8) | (uint16_t) read_buffer[3];
+      *register_value = encode_uint16(read_buffer[4], read_buffer[3]);
       return i2c::NO_ERROR;
     }
   }
@@ -217,8 +217,7 @@ uint8_t Lc709203f::set_register_(uint8_t register_to_set, uint16_t value_to_set)
   //  part of the CRC calculation.
   write_buffer[0] = (this->address_) << 1;
   write_buffer[1] = register_to_set;
-  write_buffer[2] = value_to_set & 0xFF;         // Low byte
-  write_buffer[3] = (value_to_set >> 8) & 0xFF;  // High byte
+  put_le16(write_buffer + 2, value_to_set);
   write_buffer[4] = crc8(write_buffer, 4, 0x00, 0x07, true);
 
   for (uint8_t i = 0; i <= LC709203F_I2C_RETRY_COUNT; i++) {
@@ -258,7 +257,7 @@ void Lc709203f::set_pack_size(uint16_t pack_size) {
       // If the pack size is between the current array element and the previous. Do a linear
       //  Curve fit to determine the APA value.
 
-      // Type casting is required here to avoid interger division
+      // Type casting is required here to avoid integer division
       slope = static_cast<float>(APA_ARRAY[i] - APA_ARRAY[i - 1]) /
               static_cast<float>(PACK_SIZE_ARRAY[i] - PACK_SIZE_ARRAY[i - 1]);
 
@@ -271,13 +270,8 @@ void Lc709203f::set_pack_size(uint16_t pack_size) {
   }
   // We should never get here. If we do, it means we never set the pack APA. This should
   //  not be possible because of the config validation. However, if it does happen, the
-  //  consequence is that the RSOC values will likley not be as accurate. However, it should
+  //  consequence is that the RSOC values will likely not be as accurate. However, it should
   //  not cause an error or crash, so I am not doing any additional checking here.
 }
 
-void Lc709203f::set_thermistor_b_constant(uint16_t b_constant) { this->b_constant_ = b_constant; }
-
-void Lc709203f::set_pack_voltage(LC709203FBatteryVoltage pack_voltage) { this->pack_voltage_ = pack_voltage; }
-
-}  // namespace lc709203f
-}  // namespace esphome
+}  // namespace esphome::lc709203f

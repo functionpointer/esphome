@@ -4,10 +4,9 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/one_wire/one_wire.h"
 
-namespace esphome {
-namespace gpio {
+namespace esphome::gpio {
 
-class GPIOOneWireBus : public one_wire::OneWireBus, public Component {
+class GPIOOneWireBus final : public one_wire::OneWireBus, public Component {
  public:
   void setup() override;
   void dump_config() override;
@@ -24,19 +23,17 @@ class GPIOOneWireBus : public one_wire::OneWireBus, public Component {
   uint64_t read64() override;
 
  protected:
-  InternalGPIOPin *t_pin_;
+  InternalGPIOPin *t_pin_{nullptr};
   ISRInternalGPIOPin pin_;
   uint8_t last_discrepancy_{0};
   bool last_device_flag_{false};
-  uint64_t address_;
+  uint64_t address_{0};
 
   int reset_int() override;
   void reset_search() override;
   uint64_t search_int() override;
   void write_bit_(bool bit);
   bool read_bit_();
-  bool read_bit_(uint32_t *t);
 };
 
-}  // namespace gpio
-}  // namespace esphome
+}  // namespace esphome::gpio

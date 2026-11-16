@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/entity_base.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/progmem.h"
 #ifdef USE_TEXT_SENSOR_FILTER
 #include "esphome/components/text_sensor/filter.h"
 #endif
@@ -29,24 +30,23 @@ class TextSensor : public EntityBase {
  public:
   std::string state;
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  /// @deprecated Use get_raw_state() instead. This member will be removed in ESPHome 2026.6.0.
-  ESPDEPRECATED("Use get_raw_state() instead of .raw_state. Will be removed in 2026.6.0", "2025.12.0")
-  std::string raw_state;
-
-  TextSensor() = default;
+  // User provided, not "= default": `new(p) TextSensor()` would zero-fill .bss that is already zero.
+  TextSensor() {}
   ~TextSensor() = default;
-#pragma GCC diagnostic pop
 
   /// Getter-syntax for .state.
   const std::string &get_state() const;
-  /// Getter-syntax for .raw_state
+  /// Returns the raw (pre-filter) state.
   const std::string &get_raw_state() const;
 
-  void publish_state(const std::string &state);
-  void publish_state(const char *state);
+  void publish_state(const std::string &state) { this->publish_state(state.data(), state.size()); }
+  void publish_state(const char *state) { this->publish_state(state, strlen(state)); }
   void publish_state(const char *state, size_t len);
+#ifdef USE_ESP8266
+  /// Publish a flash string, such as a PROGMEM_STRING_TABLE get_progmem_str(); at most 255 characters, the Home
+  /// Assistant state limit, are kept.
+  void publish_state(ProgmemStr state);
+#endif
 
 #ifdef USE_TEXT_SENSOR_FILTER
   /// Add a filter to the filter chain. Will be appended to the back.
@@ -60,23 +60,47 @@ class TextSensor : public EntityBase {
 
   /// Clear the entire filter chain.
   void clear_filters();
+#ifdef USE_TEXT_SENSOR_FILTER_RESET
+  /// Reset the filter chain and take it out of use, so values publish unfiltered. If the last raw value differs
+  /// from the current state, because a filter held it back, dropped it or changed it, the raw value is sent.
+  /// Returns the chain, or nullptr if there is none, for attach_filters(). Not for use from this sensor's own raw
+  /// state callback; defer instead.
+  Filter *detach_filters();
+  /// Put back a chain from detach_filters() and run the current state through it, without calling the raw state
+  /// callbacks again. Only for use while the chain is detached: it replaces any chain that is attached. Does nothing
+  /// for nullptr.
+  void attach_filters(Filter *filters);
+#endif
 #endif
 
-  void add_on_state_callback(std::function<void(const std::string &)> callback);
+  template<typename F> void add_on_state_callback(F &&callback) { this->callback_.add(std::forward<F>(callback)); }
   /// Add a callback that will be called every time the sensor sends a raw value.
-  void add_on_raw_state_callback(std::function<void(const std::string &)> callback);
+  /// When USE_TEXT_SENSOR_FILTER is not enabled, delegates to the regular callback
+  /// since raw state equals filtered state without filter support compiled in.
+  template<typename F> void add_on_raw_state_callback(F &&callback) {
+#ifdef USE_TEXT_SENSOR_FILTER
+    this->raw_callback_.add(std::forward<F>(callback));
+#else
+    this->callback_.add(std::forward<F>(callback));
+#endif
+  }
 
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
 
-  void internal_send_state_to_frontend(const std::string &state);
+  void internal_send_state_to_frontend(const std::string &state) {
+    this->internal_send_state_to_frontend(state.data(), state.size());
+  }
   void internal_send_state_to_frontend(const char *state, size_t len);
 
  protected:
   /// Notify frontend that state has changed (assumes this->state is already set)
   void notify_frontend_();
+#ifdef USE_TEXT_SENSOR_FILTER
+  std::string raw_state_;  ///< Backing storage for the raw (pre-filter) value. Only used when a filter is attached.
   LazyCallbackManager<void(const std::string &)> raw_callback_;  ///< Storage for raw state callbacks.
-  LazyCallbackManager<void(const std::string &)> callback_;      ///< Storage for filtered state callbacks.
+#endif
+  LazyCallbackManager<void(const std::string &)> callback_;  ///< Storage for filtered state callbacks.
 
 #ifdef USE_TEXT_SENSOR_FILTER
   Filter *filter_list_{nullptr};  ///< Store all active filters.

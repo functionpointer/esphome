@@ -3,12 +3,12 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 
-namespace esphome {
-namespace ntc {
+namespace esphome::ntc {
 
-class NTC : public Component, public sensor::Sensor {
+class NTC final : public Component, public sensor::Sensor {
+  SUB_SENSOR(source)
+
  public:
-  void set_sensor(Sensor *sensor) { sensor_ = sensor; }
   void set_a(double a) { a_ = a; }
   void set_b(double b) { b_ = b; }
   void set_c(double c) { c_ = c; }
@@ -18,11 +18,9 @@ class NTC : public Component, public sensor::Sensor {
  protected:
   void process_(float value);
 
-  sensor::Sensor *sensor_;
   double a_;
   double b_;
   double c_;
 };
 
-}  // namespace ntc
-}  // namespace esphome
+}  // namespace esphome::ntc

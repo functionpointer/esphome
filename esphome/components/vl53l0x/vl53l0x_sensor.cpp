@@ -1,6 +1,9 @@
 #include "vl53l0x_sensor.h"
 #include "esphome/core/log.h"
 
+#include <algorithm>
+#include <cinttypes>
+
 /*
  * Most of the code in this integration is based on the VL53L0x library
  * by Pololu (Pololu Corporation), which in turn is based on the VL53L0X
@@ -10,10 +13,9 @@
  * in the vl53l0x integration directory.
  */
 
-namespace esphome {
-namespace vl53l0x {
+namespace esphome::vl53l0x {
 
-static const char *const TAG = "vl53l0x";
+ESPHOME_LOG_TAG(TAG, "vl53l0x");
 
 std::list<VL53L0XSensor *> VL53L0XSensor::vl53_sensors;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 bool VL53L0XSensor::enable_pin_setup_complete = false;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -28,9 +30,10 @@ void VL53L0XSensor::dump_config() {
     LOG_PIN("  Enable Pin: ", this->enable_pin_);
   }
   ESP_LOGCONFIG(TAG,
-                "  Timeout: %u%s\n"
-                "  Timing Budget %uus ",
-                this->timeout_us_, this->timeout_us_ > 0 ? "us" : " (no timeout)", this->measurement_timing_budget_us_);
+                "  Timeout: %" PRIu32 "%s\n"
+                "  Timing Budget %" PRIu32 "us ",
+                this->timeout_us_, this->timeout_us_ > 0 ? LOG_STR_LITERAL("us") : LOG_STR_LITERAL(" (no timeout)"),
+                this->measurement_timing_budget_us_);
 }
 
 void VL53L0XSensor::setup() {
@@ -90,7 +93,7 @@ void VL53L0XSensor::setup() {
   uint32_t timeout_start_us = micros();
   while (reg(0x83).get() == 0x00) {
     if (this->timeout_us_ > 0 && (micros() - timeout_start_us > this->timeout_us_)) {
-      ESP_LOGE(TAG, "'%s' - setup timeout", this->name_.c_str());
+      ESP_LOGE(TAG, "'%s' - setup timeout", LOG_STR_ARG(this->get_log_name()));
       this->mark_failed();
       return;
     }
@@ -263,11 +266,19 @@ void VL53L0XSensor::setup() {
 void VL53L0XSensor::update() {
   if (this->initiated_read_ || this->waiting_for_interrupt_) {
     this->publish_state(NAN);
-    this->status_momentary_warning("update", 5000);
+    this->status_momentary_warning(5000);
     ESP_LOGW(TAG, "%s - update called before prior reading complete - initiated:%d waiting_for_interrupt:%d",
-             this->name_.c_str(), this->initiated_read_, this->waiting_for_interrupt_);
-    return;
+             LOG_STR_ARG(this->get_log_name()), this->initiated_read_, this->waiting_for_interrupt_);
+    // A measurement gets its timing budget plus one more interval; one still pending after that is stalled
+    const uint32_t interval_ms = std::max<uint32_t>(this->get_update_interval(), 1);
+    const uint32_t grace = std::min<uint32_t>(this->measurement_timing_budget_us_ / 1000 / interval_ms + 1, UINT8_MAX);
+    if (this->pending_updates_ < grace) {
+      this->pending_updates_++;
+      return;
+    }
+    reg(0x0B) = 0x01;
   }
+  this->pending_updates_ = 0;
 
   // initiate single shot measurement
   reg(0x80) = 0x01;
@@ -286,10 +297,12 @@ void VL53L0XSensor::update() {
 }
 
 void VL53L0XSensor::loop() {
+  // A failed read must not advance the state: it reads as 0, which looks like a finished measurement
+  uint8_t value;
   if (this->initiated_read_) {
-    if (reg(0x00).get() & 0x01) {
-      // waiting
-    } else {
+    if (!this->read_byte(0x00, &value))
+      return;
+    if (!(value & 0x01)) {
       // done
       // wait until reg(0x13) & 0x07 is set
       this->initiated_read_ = false;
@@ -297,20 +310,28 @@ void VL53L0XSensor::loop() {
     }
   }
   if (this->waiting_for_interrupt_) {
-    if (reg(0x13).get() & 0x07) {
+    if (!this->read_byte(0x13, &value))
+      return;
+    if (value & 0x07) {
       uint16_t range_mm = 0;
-      this->read_byte_16(0x14 + 10, &range_mm);
+      const bool ok = this->read_byte_16(0x14 + 10, &range_mm);
       reg(0x0B) = 0x01;
       this->waiting_for_interrupt_ = false;
+      if (!ok) {
+        this->publish_state(NAN);
+        this->status_momentary_warning(5000);
+        return;
+      }
 
       if (range_mm >= 8190) {
-        ESP_LOGD(TAG, "'%s' - Distance is out of range, please move the target closer", this->name_.c_str());
+        ESP_LOGD(TAG, "'%s' - Distance is out of range, please move the target closer",
+                 LOG_STR_ARG(this->get_log_name()));
         this->publish_state(NAN);
         return;
       }
 
       float range_m = range_mm / 1e3f;
-      ESP_LOGD(TAG, "'%s' - Got distance %.3f m", this->name_.c_str(), range_m);
+      ESP_LOGD(TAG, "'%s' - Got distance %.3f m", LOG_STR_ARG(this->get_log_name()), range_m);
       this->publish_state(range_m);
     }
   }
@@ -533,5 +554,4 @@ bool VL53L0XSensor::perform_single_ref_calibration_(uint8_t vhv_init_byte) {
   return true;
 }
 
-}  // namespace vl53l0x
-}  // namespace esphome
+}  // namespace esphome::vl53l0x

@@ -4,10 +4,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace tm1638 {
+namespace esphome::tm1638 {
 
-static const char *const TAG = "display.tm1638";
+ESPHOME_LOG_TAG(TAG, "display.tm1638");
 static const uint8_t TM1638_REGISTER_FIXEDADDRESS = 0x44;
 static const uint8_t TM1638_REGISTER_AUTOADDRESS = 0x40;
 static const uint8_t TM1638_REGISTER_READBUTTONS = 0x42;
@@ -49,12 +48,10 @@ void TM1638Component::dump_config() {
 }
 
 void TM1638Component::loop() {
-  if (this->listeners_.empty())
-    return;
-
-  uint8_t keys = this->get_keys();
-  for (auto &listener : this->listeners_)
-    listener->keys_update(keys);
+#ifdef USE_TM1638_KEYS_PUBLISHER
+  if (this->keys_publisher_ != nullptr)
+    this->keys_publisher_(this->get_keys());
+#endif
 }
 
 uint8_t TM1638Component::get_keys() {
@@ -282,5 +279,4 @@ void TM1638Component::shift_out_(uint8_t val) {
   }
 }
 
-}  // namespace tm1638
-}  // namespace esphome
+}  // namespace esphome::tm1638

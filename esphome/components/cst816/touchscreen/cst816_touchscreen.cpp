@@ -1,8 +1,7 @@
 #include "cst816_touchscreen.h"
 #include "esphome/core/helpers.h"
 
-namespace esphome {
-namespace cst816 {
+namespace esphome::cst816 {
 
 void CST816Touchscreen::continue_setup_() {
   if (this->interrupt_pin_ != nullptr) {
@@ -53,12 +52,7 @@ void CST816Touchscreen::continue_setup_() {
 
 void CST816Touchscreen::setup() {
   if (this->reset_pin_ != nullptr) {
-    this->reset_pin_->setup();
-    this->reset_pin_->digital_write(true);
-    delay(5);
-    this->reset_pin_->digital_write(false);
-    delay(5);
-    this->reset_pin_->digital_write(true);
+    pulse_reset(this->reset_pin_, {.high_before_ms = 5, .low_ms = 5});
     this->set_timeout(30, [this] { this->continue_setup_(); });
   } else {
     this->continue_setup_();
@@ -67,10 +61,8 @@ void CST816Touchscreen::setup() {
 
 void CST816Touchscreen::update_touches() {
   uint8_t data[13];
-  if (!this->read_bytes(REG_STATUS, data, sizeof data)) {
-    this->status_set_warning();
+  if (!this->status_comm_result(this->read_bytes(REG_STATUS, data, sizeof data)))
     return;
-  }
   uint8_t num_of_touches = data[REG_TOUCH_NUM] & 3;
   if (num_of_touches == 0) {
     return;
@@ -121,5 +113,4 @@ void CST816Touchscreen::dump_config() {
   ESP_LOGCONFIG(TAG, "  Chip type: %s", name);
 }
 
-}  // namespace cst816
-}  // namespace esphome
+}  // namespace esphome::cst816

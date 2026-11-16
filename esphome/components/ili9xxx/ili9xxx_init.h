@@ -3,8 +3,7 @@
 
 #include <cinttypes>
 
-namespace esphome {
-namespace ili9xxx {
+namespace esphome::ili9xxx {
 
 // clang-format off
 static constexpr uint8_t PROGMEM INITCMD_M5STACK[] = {
@@ -152,7 +151,7 @@ static const uint8_t INITCMD_ILI9488[] = {
   ILI9XXX_FRMCTR1, 1, 0xA0,  // Frame rate = 60Hz
   ILI9XXX_INVCTR,  1, 0x02,  // Display Inversion Control = 2dot
 
-  0xE9, 1, 0x00,   // Set Image Functio. Disable 24 bit data
+  0xE9, 1, 0x00,   // Set Image Function. Disable 24 bit data
 
   ILI9XXX_ADJCTL3, 4, 0xA9, 0x51, 0x2C, 0x82,  // Adjust Control 3
   ILI9XXX_PIXFMT, 1, 0x66,   //ILI9488 only supports 18-bit pixel format in 4/3 wire SPI mode
@@ -185,9 +184,9 @@ static constexpr uint8_t PROGMEM INITCMD_ILI9488_A[] = {
   ILI9XXX_FRMCTR1, 1, 0xA0,  // Frame rate = 60Hz
   ILI9XXX_INVCTR,  1, 0x02,  // Display Inversion Control = 2dot
 
-  ILI9XXX_DFUNCTR, 2, 0x02, 0x02, // Nomal scan
+  ILI9XXX_DFUNCTR, 2, 0x02, 0x02, // Normal scan
 
-  0xE9, 1, 0x00,   // Set Image Functio. Disable 24 bit data
+  0xE9, 1, 0x00,   // Set Image Function. Disable 24 bit data
 
   ILI9XXX_ADJCTL3, 4, 0xA9, 0x51, 0x2C, 0x82,  // Adjust Control 3
 
@@ -207,7 +206,7 @@ static constexpr uint8_t PROGMEM INITCMD_ILI9488_A[] = {
 };
 
 static constexpr uint8_t PROGMEM INITCMD_ST7796[] = {
-  // This ST7796S initilization routine was copied from https://github.com/prenticedavid/Adafruit_ST7796S_kbv/blob/master/Adafruit_ST7796S_kbv.cpp
+  // This ST7796S initialization routine was copied from https://github.com/prenticedavid/Adafruit_ST7796S_kbv/blob/master/Adafruit_ST7796S_kbv.cpp
   ILI9XXX_SWRESET, 0x80,         // Soft reset, then delay 150 ms
   ILI9XXX_CSCON, 1, 0xC3,              // ?? Unlock Manufacturer
   ILI9XXX_CSCON, 1, 0x96,
@@ -478,5 +477,4 @@ static constexpr uint8_t PROGMEM INITCMD_ST7735[] = {
 };
 
 // clang-format on
-}  // namespace ili9xxx
-}  // namespace esphome
+}  // namespace esphome::ili9xxx

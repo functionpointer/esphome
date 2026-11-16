@@ -3,10 +3,10 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/components/i2c/i2c.h"
-#include "esphome/components/gpio_expander/cached_gpio.h"
+#include "esphome/components/gpio_expander/cached_gpio_component.h"
+#include "esphome/components/gpio_expander/expander_gpio_pin.h"
 
-namespace esphome {
-namespace mcp23016 {
+namespace esphome::mcp23016 {
 
 enum MCP23016GPIORegisters {
   // 0 side
@@ -25,20 +25,16 @@ enum MCP23016GPIORegisters {
   MCP23016_IOCON1 = 0x0B,
 };
 
-class MCP23016 : public Component, public i2c::I2CDevice, public gpio_expander::CachedGpioExpander<uint16_t, 16> {
+class MCP23016 final : public gpio_expander::CachedGpioExpanderComponent<uint16_t, 16>, public i2c::I2CDevice {
  public:
   MCP23016() = default;
 
   void setup() override;
-  void loop() override;
   void pin_mode(uint8_t pin, gpio::Flags flags);
-
-  float get_setup_priority() const override;
 
  protected:
   // Virtual methods from CachedGpioExpander
   bool digital_read_hw(uint8_t pin) override;
-  bool digital_read_cache(uint8_t pin) override;
   void digital_write_hw(uint8_t pin, bool value) override;
 
   // read a given register
@@ -49,31 +45,10 @@ class MCP23016 : public Component, public i2c::I2CDevice, public gpio_expander::
   void update_reg_(uint8_t pin, bool pin_value, uint8_t reg_a);
 
   uint16_t olat_{0x0000};
-  // Cache for input values (16-bit combined for both banks)
-  uint16_t input_mask_{0x0000};
 };
 
-class MCP23016GPIOPin : public GPIOPin {
- public:
-  void setup() override;
-  void pin_mode(gpio::Flags flags) override;
-  bool digital_read() override;
-  void digital_write(bool value) override;
-  size_t dump_summary(char *buffer, size_t len) const override;
+using MCP23016GPIOPin = gpio_expander::ExpanderGPIOPin<MCP23016>;
 
-  void set_parent(MCP23016 *parent) { parent_ = parent; }
-  void set_pin(uint8_t pin) { pin_ = pin; }
-  void set_inverted(bool inverted) { inverted_ = inverted; }
-  void set_flags(gpio::Flags flags) { flags_ = flags; }
+}  // namespace esphome::mcp23016
 
-  gpio::Flags get_flags() const override { return this->flags_; }
-
- protected:
-  MCP23016 *parent_;
-  uint8_t pin_;
-  bool inverted_;
-  gpio::Flags flags_;
-};
-
-}  // namespace mcp23016
-}  // namespace esphome
+ESPHOME_EXPANDER_PIN_SUMMARY_DECL(esphome::mcp23016::MCP23016);

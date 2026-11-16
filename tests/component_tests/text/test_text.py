@@ -13,7 +13,8 @@ def test_text_is_setup(generate_main):
     main_cpp = generate_main("tests/component_tests/text/test_text.yaml")
 
     # Then
-    assert "new template_::TemplateText();" in main_cpp
+    assert "static template_::TemplateText *const" in main_cpp
+    assert ") template_::TemplateText();" in main_cpp
     assert "App.register_text" in main_cpp
 
 
@@ -27,7 +28,7 @@ def test_text_sets_mandatory_fields(generate_main):
     main_cpp = generate_main("tests/component_tests/text/test_text.yaml")
 
     # Then
-    assert 'it_1->configure_entity_("test 1 text",' in main_cpp
+    assert 'App.register_text(it_1, ESPHOME_PSTR("test 1 text"),' in main_cpp
 
 
 def test_text_config_value_internal_set(generate_main):
@@ -58,7 +59,7 @@ def test_text_config_value_mode_set(generate_main):
     assert "it_3->traits.set_mode(text::TEXT_MODE_PASSWORD);" in main_cpp
 
 
-def test_text_config_lamda_is_set(generate_main):
+def test_text_config_lambda_is_set(generate_main):
     """
     Test if lambda is set for lambda mode (optimized with stateless lambda)
     """

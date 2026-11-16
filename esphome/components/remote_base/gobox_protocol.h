@@ -3,8 +3,7 @@
 #include "esphome/core/component.h"
 #include "remote_base.h"
 
-namespace esphome {
-namespace remote_base {
+namespace esphome::remote_base {
 
 struct GoboxData {
   int code;
@@ -29,26 +28,14 @@ enum {
 
 class GoboxProtocol : public RemoteProtocol<GoboxData> {
  private:
-  void dump_timings_(const RawTimings &timings) const;
+  void dump_timings_(RawTimingsView timings) const;
 
  public:
-  void encode(RemoteTransmitData *dst, const GoboxData &data) override;
-  optional<GoboxData> decode(RemoteReceiveData src) override;
-  void dump(const GoboxData &data) override;
+  void encode(RemoteTransmitData *dst, const GoboxData &data);
+  optional<GoboxData> decode(RemoteReceiveData src);
+  void dump(const GoboxData &data);
 };
 
 DECLARE_REMOTE_PROTOCOL(Gobox)
 
-template<typename... Ts> class GoboxAction : public RemoteTransmitterActionBase<Ts...> {
- public:
-  TEMPLATABLE_VALUE(uint64_t, code);
-
-  void encode(RemoteTransmitData *dst, Ts... x) override {
-    GoboxData data{};
-    data.code = this->code_.value(x...);
-    GoboxProtocol().encode(dst, data);
-  }
-};
-
-}  // namespace remote_base
-}  // namespace esphome
+}  // namespace esphome::remote_base

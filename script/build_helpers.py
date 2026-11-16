@@ -9,8 +9,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import traceback
 
-from helpers import get_all_dependencies, root_path as _root_path
+from helpers import (
+    BENCHMARK_YAML_FILENAME,
+    get_all_dependencies,
+    has_cpp_unit_tests,
+    root_path as _root_path,
+)
 import yaml
 
 # Ensure the repo root is on sys.path so that ``tests.testing_helpers`` and
@@ -22,8 +28,8 @@ from esphome.__main__ import command_compile, parse_args
 from esphome.config import validate_config
 from esphome.const import CONF_PLATFORM
 from esphome.core import CORE
+from esphome.host.toolchain import get_elf_path
 from esphome.loader import get_component, get_platform
-from esphome.platformio_api import get_idedata
 from tests.testing_helpers import ComponentManifestOverride, set_testing_manifest
 
 # This must coincide with the version in /platformio.ini
@@ -46,15 +52,76 @@ EXIT_SKIPPED = 1
 EXIT_COMPILE_ERROR = 2
 EXIT_CONFIG_ERROR = 3
 EXIT_NO_EXECUTABLE = 4
-
-# Name of the per-component YAML config file in benchmark directories
-BENCHMARK_YAML_FILENAME = "benchmark.yaml"
+# A test folder with this name would be synced into src/esphome and swept away with the core tree
+CORE_TREE_DIR = "esphome"
 
 
 def hash_components(components: list[str]) -> str:
     """Create a short hash of component names for unique config naming."""
     key = ",".join(components)
     return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def populate_dependency_config(
+    config: dict,
+    component_names: list[str],
+    *,
+    get_component_fn: Callable[[str], object | None] = get_component,
+    register_platform_fn: Callable[[str], None] | None = None,
+) -> None:
+    """Populate ``config`` with empty entries for transitive dependencies.
+
+    For every name in ``component_names``:
+
+    * ``domain.platform`` form (e.g. ``sensor.gpio``) appends
+      ``{platform: <name>}`` to ``config[domain]``, creating the list if needed.
+    * Bare components are looked up via ``get_component_fn``. Target-platform
+      components (``is_target_platform``, e.g. ``esp32``) are skipped entirely:
+      a host build targets ``host``, so a foreign target platform's sources are
+      guarded out and its schema must not run here (it would mutate global CORE
+      state as a side effect). Platform components (``IS_PLATFORM_COMPONENT``)
+      and ``MULTI_CONF`` components are initialised as ``[]`` so the sibling
+      ``domain.platform`` branch can ``append`` into them. Everything else is
+      populated by running the component's schema with ``{}`` so defaults exist;
+      if the schema requires explicit input, an empty ``{}`` is used as a fallback.
+
+    Platform components must always be a list here even when no
+    ``domain.platform`` entry follows, because the ``domain.platform`` branch
+    does ``config.setdefault(domain, []).append(...)`` and would crash on a
+    leftover dict.
+    """
+    if register_platform_fn is None:
+        register_platform_fn = CORE.testing_ensure_platform_registered
+    for component_name in component_names:
+        if "." in component_name:
+            domain, component = component_name.split(".", maxsplit=1)
+            domain_list = config.setdefault(domain, [])
+            register_platform_fn(domain)
+            domain_list.append({CONF_PLATFORM: component})
+            continue
+        # Skip "core" — it's a pseudo-component handled by the build
+        # system, not a real loadable component (get_component returns None)
+        component = get_component_fn(component_name)
+        if component is None:
+            continue
+        # Skip target platforms (e.g. esp32): a host build targets `host`, so a
+        # foreign target's sources are guarded out, and running its schema with
+        # {} leaks global CORE state (esp32 pins CORE.toolchain to ESP-IDF),
+        # crashing the host compile. See #17035.
+        if component.is_target_platform:
+            continue
+        if component.multi_conf or component.is_platform_component:
+            config.setdefault(component_name, [])
+        elif component_name not in config:
+            schema = component.config_schema
+            try:
+                config[component_name] = schema({}) if schema is not None else {}
+            except Exception:  # noqa: BLE001
+                # Schema requires explicit input we can't synthesize; fall
+                # back to an empty mapping so subscripting at least returns
+                # KeyError on missing keys rather than crashing on the
+                # wrong type.
+                config[component_name] = {}
 
 
 def filter_components_with_files(components: list[str], tests_dir: Path) -> list[str]:
@@ -69,14 +136,11 @@ def filter_components_with_files(components: list[str], tests_dir: Path) -> list
     """
     filtered_components: list[str] = []
     for component in components:
-        test_dir = tests_dir / component
-        if test_dir.is_dir() and (
-            any(test_dir.glob("*.cpp")) or any(test_dir.glob("*.h"))
-        ):
+        if has_cpp_unit_tests(component, tests_dir):
             filtered_components.append(component)
         else:
             print(
-                f"WARNING: No files found for component '{component}' in {test_dir}, skipping.",
+                f"WARNING: No files found for component '{component}' in {tests_dir / component}, skipping.",
                 file=sys.stderr,
             )
     return filtered_components
@@ -127,6 +191,8 @@ def load_component_yaml_configs(components: list[str], tests_dir: Path) -> dict:
 
     The ``esphome:`` key is special: its sub-keys are merged into the
     existing esphome config (e.g. to add ``areas:`` or ``devices:``).
+    A list, such as the entries of a platform component, is extended, so
+    several directories can each add their own entries to one key.
     Keys already present in the base config (e.g. ``host:``, ``logger:``)
     are protected by ``setdefault`` in the caller.
 
@@ -142,7 +208,7 @@ def load_component_yaml_configs(components: list[str], tests_dir: Path) -> dict:
         yaml_path = tests_dir / component / BENCHMARK_YAML_FILENAME
         if not yaml_path.is_file():
             continue
-        with open(yaml_path) as f:
+        with yaml_path.open() as f:
             component_config = yaml.safe_load(f)
         if component_config and isinstance(component_config, dict):
             for key, value in component_config.items():
@@ -151,6 +217,9 @@ def load_component_yaml_configs(components: list[str], tests_dir: Path) -> dict:
                     esphome_extra = merged.setdefault(ESPHOME_KEY, {})
                     for sub_key, sub_value in value.items():
                         esphome_extra.setdefault(sub_key, sub_value)
+                    continue
+                if isinstance(value, list) and isinstance(merged.get(key), list):
+                    merged[key] = merged[key] + value
                     continue
                 merged.setdefault(key, value)
     return merged
@@ -161,7 +230,7 @@ def create_host_config(
     friendly_name: str,
     libraries: str | list[str],
     includes: list[str],
-    platformio_options: dict,
+    build_flags: list[str],
 ) -> dict:
     """Create an ESPHome host configuration for C++ builds.
 
@@ -170,7 +239,7 @@ def create_host_config(
         friendly_name: Human-readable name
         libraries: PlatformIO library specification(s)
         includes: List of include folders for the build
-        platformio_options: Dict of platformio_options to set
+        build_flags: Compiler/linker flags for the build
 
     Returns:
         Configuration dict for ESPHome
@@ -180,7 +249,7 @@ def create_host_config(
             "name": config_name,
             "friendly_name": friendly_name,
             "libraries": libraries,
-            "platformio_options": platformio_options,
+            "build_flags": build_flags,
             "includes": includes,
         },
         HOST_KEY: {},
@@ -224,10 +293,15 @@ def load_test_manifest_overrides(
     defines ``override_manifest(manifest)``, it is called to customise
     the override (e.g. ``manifest.enable_codegen()``).
     """
+    wrapped: dict[str, ComponentManifestOverride] = {}
     for comp_name in components:
-        override = _wrap_manifest(comp_name)
+        # tests/components/core and tests/components/esphome both override the
+        # "esphome" core manifest, so they share one wrapper
+        manifest_name = ESPHOME_KEY if comp_name == "core" else comp_name
+        override = wrapped.get(manifest_name) or _wrap_manifest(manifest_name)
         if override is None:
             continue
+        wrapped[manifest_name] = override
 
         if "." in comp_name:
             domain, component = comp_name.split(".", maxsplit=1)
@@ -253,6 +327,25 @@ def load_test_manifest_overrides(
 
 # Type alias for manifest override loaders
 ManifestOverrideLoader = Callable[[list[str]], None]
+
+
+def resolve_dependencies_with_overrides(
+    components: list[str], manifest_override_loader: ManifestOverrideLoader
+) -> list[str]:
+    """Return the components and all their dependencies, with overrides applied.
+
+    Overrides are applied before each dependency search, so dependencies added by
+    any override_manifest(), including one of a component found only as a
+    dependency, are included. The loader is called again with components it has
+    already seen, so it must apply each override only once.
+    """
+    resolved = sorted(components)
+    while True:
+        manifest_override_loader(resolved)
+        expanded = sorted(get_all_dependencies(set(resolved)))
+        if expanded == resolved:
+            return resolved
+        resolved = expanded
 
 
 def compile_and_get_binary(
@@ -295,18 +388,11 @@ def compile_and_get_binary(
         else:
             config.setdefault(key, value)
 
-    # Apply manifest overrides before dependency resolution so that any
-    # dependency additions made by override_manifest() are picked up.
-    manifest_override_loader(components)
-
     # Obtain possible dependencies BEFORE validate_config, because
     # get_all_dependencies calls CORE.reset() which clears build_path.
-    components_with_dependencies: list[str] = sorted(
-        get_all_dependencies(set(components))
+    components_with_dependencies = resolve_dependencies_with_overrides(
+        components, manifest_override_loader
     )
-
-    # Apply overrides for any transitively discovered dependencies.
-    manifest_override_loader(components_with_dependencies)
 
     CORE.config_path = tests_dir / "dummy.yaml"
     CORE.dashboard = None
@@ -316,16 +402,7 @@ def compile_and_get_binary(
 
     # Add remaining components and dependencies to the configuration after
     # validation, so their source files are included in the build.
-    for component_name in components_with_dependencies:
-        if "." in component_name:
-            domain, component = component_name.split(".", maxsplit=1)
-            domain_list = config.setdefault(domain, [])
-            CORE.testing_ensure_platform_registered(domain)
-            domain_list.append({CONF_PLATFORM: component})
-        # Skip "core" — it's a pseudo-component handled by the build
-        # system, not a real loadable component (get_component returns None)
-        elif get_component(component_name) is not None:
-            config.setdefault(component_name, [])
+    populate_dependency_config(config, components_with_dependencies)
 
     # Register platforms from the extra config (benchmark.yaml) so
     # USE_SENSOR, USE_LIGHT, etc. defines are emitted without needing
@@ -348,18 +425,18 @@ def compile_and_get_binary(
         if exit_code != 0:
             print(f"Error compiling {label} for {', '.join(components)}")
             return exit_code, None
-    except Exception as e:
-        print(f"Error compiling {label} for {', '.join(components)}: {e}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error compiling {label} for {', '.join(components)}: {e!r}")
+        traceback.print_exc(file=sys.stdout)
         return EXIT_COMPILE_ERROR, None
 
     # After a successful compilation, locate the executable:
-    idedata = get_idedata(config)
-    if idedata is None:
+    program_path = get_elf_path()
+    if not program_path.is_file():
         print("Cannot find executable")
         return EXIT_NO_EXECUTABLE, None
 
-    program_path: str = idedata.raw["prog_path"]
-    return EXIT_OK, program_path
+    return EXIT_OK, str(program_path)
 
 
 def build_and_run(
@@ -369,7 +446,7 @@ def build_and_run(
     config_prefix: str,
     friendly_name: str,
     libraries: str | list[str],
-    platformio_options: dict,
+    build_flags: list[str],
     main_entry: str,
     label: str = "build",
     build_only: bool = False,
@@ -388,7 +465,7 @@ def build_and_run(
         config_prefix: Prefix for the config name (e.g. "cpptests", "cppbench")
         friendly_name: Human-readable name for the config
         libraries: PlatformIO library specification(s)
-        platformio_options: PlatformIO options dict
+        build_flags: Compiler/linker flags for the build
         main_entry: Name of the main entry file (e.g. "main.cpp")
         label: Label for log messages
         build_only: If True, print binary path and return without running
@@ -416,8 +493,19 @@ def build_and_run(
 
     components = sorted(components)
 
-    # Build include list: main entry point + component folders + extra dirs
-    includes: list[str] = [main_entry] + components
+    # Build include list: main entry point + component folders + extra dirs. The core tree
+    # folder is listed file by file, nested files included, since a folder include would
+    # land in src/esphome (see CORE_TREE_DIR)
+    includes: list[str] = [main_entry]
+    for component in components:
+        if component != CORE_TREE_DIR:
+            includes.append(component)
+            continue
+        includes.extend(
+            str(path.relative_to(tests_dir))
+            for path in sorted((tests_dir / component).rglob("*"))
+            if path.suffix in (".cpp", ".h")
+        )
     if extra_include_dirs:
         for d in extra_include_dirs:
             if d.is_dir() and (any(d.glob("*.cpp")) or any(d.glob("*.h"))):
@@ -438,7 +526,7 @@ def build_and_run(
     config_name: str = f"{config_prefix}-" + hash_components(components)
 
     config = create_host_config(
-        config_name, friendly_name, libraries, includes, platformio_options
+        config_name, friendly_name, libraries, includes, build_flags
     )
 
     exit_code, program_path = compile_and_get_binary(

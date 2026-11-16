@@ -1,15 +1,15 @@
 #pragma once
 
 #include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"  // for ESPDEPRECATED
 
 #include <cstddef>
 #include <cstdint>
 
-namespace esphome {
-namespace audio {
+namespace esphome::audio {
 
 class AudioStreamInfo {
-  /* Class to respresent important parameters of the audio stream that also provides helper function to convert between
+  /* Class to represent important parameters of the audio stream that also provides helper function to convert between
    * various audio related units.
    *
    *  - An audio sample represents a unit of audio for one channel.
@@ -22,7 +22,7 @@ class AudioStreamInfo {
    */
  public:
   AudioStreamInfo()
-      : AudioStreamInfo(16, 1, 16000){};  // Default values represent ESPHome's audio components historical values
+      : AudioStreamInfo(16, 1, 16000) {};  // Default values represent ESPHome's audio components historical values
   AudioStreamInfo(uint8_t bits_per_sample, uint8_t channels, uint32_t sample_rate);
 
   uint8_t get_bits_per_sample() const { return this->bits_per_sample_; }
@@ -34,7 +34,7 @@ class AudioStreamInfo {
   /// @return Duration in milliseconds that will store `bytes` bytes of audio. May round down for certain sample rates
   ///         or values of `bytes`.
   uint32_t bytes_to_ms(size_t bytes) const {
-    return bytes * 1000 / (this->sample_rate_ * this->bytes_per_sample_ * this->channels_);
+    return static_cast<uint64_t>(bytes) * 1000 / (this->sample_rate_ * this->bytes_per_sample_ * this->channels_);
   }
 
   /// @brief Convert bytes to frames.
@@ -60,18 +60,20 @@ class AudioStreamInfo {
   /// @brief Converts duration to frames.
   /// @param ms Duration in milliseconds
   /// @return Audio frames that will store `ms` milliseconds of audio.  May round down for certain sample rates.
-  uint32_t ms_to_frames(uint32_t ms) const { return (ms * this->sample_rate_) / 1000; }
+  uint32_t ms_to_frames(uint32_t ms) const { return (static_cast<uint64_t>(ms) * this->sample_rate_) / 1000; }
 
   /// @brief Converts duration to samples.
   /// @param ms Duration in milliseconds
   /// @return Audio samples that will store `ms` milliseconds of audio.  May round down for certain sample rates.
-  uint32_t ms_to_samples(uint32_t ms) const { return (ms * this->channels_ * this->sample_rate_) / 1000; }
+  uint32_t ms_to_samples(uint32_t ms) const {
+    return (static_cast<uint64_t>(ms) * this->channels_ * this->sample_rate_) / 1000;
+  }
 
   /// @brief Converts duration to bytes. May round down for certain sample rates.
   /// @param ms Duration in milliseconds
   /// @return Bytes that will store `ms` milliseconds of audio.  May round down for certain sample rates.
   size_t ms_to_bytes(uint32_t ms) const {
-    return (ms * this->bytes_per_sample_ * this->channels_ * this->sample_rate_) / 1000;
+    return (static_cast<uint64_t>(ms) * this->bytes_per_sample_ * this->channels_ * this->sample_rate_) / 1000;
   }
 
   /// @brief Computes the duration, in microseconds, the given amount of frames represents.
@@ -116,7 +118,9 @@ enum class AudioFileType : uint8_t {
 #ifdef USE_AUDIO_OPUS_SUPPORT
   OPUS,
 #endif
+#ifdef USE_AUDIO_WAV_SUPPORT
   WAV,
+#endif
 };
 
 struct AudioFile {
@@ -142,6 +146,8 @@ AudioFileType detect_audio_file_type(const char *content_type, const char *url);
 /// @param output_buffer Buffer to store the scaled samples
 /// @param scale_factor Q15 fixed point scaling factor
 /// @param samples_to_scale Number of samples to scale
+// Remove before 2026.12.0
+ESPDEPRECATED("Use esp_audio_libs::gain::apply() (from <gain.h>) instead. Removed in 2026.12.0.", "2026.6.0")
 void scale_audio_samples(const int16_t *audio_samples, int16_t *output_buffer, int16_t scale_factor,
                          size_t samples_to_scale);
 
@@ -193,5 +199,4 @@ inline void pack_q31_as_audio_sample(int32_t sample, uint8_t *data, size_t bytes
   }
 }
 
-}  // namespace audio
-}  // namespace esphome
+}  // namespace esphome::audio

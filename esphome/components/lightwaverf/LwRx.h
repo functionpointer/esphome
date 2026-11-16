@@ -3,8 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 
-namespace esphome {
-namespace lightwaverf {
+namespace esphome::lightwaverf {
 
 // LwRx.h
 //
@@ -42,7 +41,7 @@ static const uint8_t RX_STATE_BYTESTARTFOUND = 2;
 static const uint8_t RX_STATE_GETBYTE = 3;
 
 // Gather stats for pulse widths (ave is x 16)
-static const uint16_t LWRX_STATSDFLT[RX_STAT_COUNT] = {5000, 0, 5000, 20000, 0, 2500, 4000, 0, 500};  // usigned int
+static const uint16_t LWRX_STATSDFLT[RX_STAT_COUNT] = {5000, 0, 5000, 20000, 0, 2500, 4000, 0, 500};  // unsigned int
 
 class LwRx {
  public:
@@ -138,5 +137,4 @@ class LwRx {
   InternalGPIOPin *rx_pin_;
 };
 
-}  // namespace lightwaverf
-}  // namespace esphome
+}  // namespace esphome::lightwaverf

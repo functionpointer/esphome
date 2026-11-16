@@ -3,11 +3,11 @@
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include <cmath>
+#include <numbers>
 
-namespace esphome {
-namespace qmc5883l {
+namespace esphome::qmc5883l {
 
-static const char *const TAG = "qmc5883l";
+ESPHOME_LOG_TAG(TAG, "qmc5883l");
 
 static const uint8_t QMC5883L_ADDRESS = 0x0D;
 
@@ -24,17 +24,22 @@ static const uint8_t QMC5883L_REGISTER_CONTROL_1 = 0x09;
 static const uint8_t QMC5883L_REGISTER_CONTROL_2 = 0x0A;
 static const uint8_t QMC5883L_REGISTER_PERIOD = 0x0B;
 
+void IRAM_ATTR QMC5883LComponent::gpio_intr(QMC5883LComponent *arg) { arg->enable_loop_soon_any_context(); }
+
 void QMC5883LComponent::setup() {
   // Soft Reset
-  if (!this->write_byte(QMC5883L_REGISTER_CONTROL_2, 1 << 7)) {
-    this->error_code_ = COMMUNICATION_FAILED;
-    this->mark_failed();
+  if (!this->setup_check(this->write_byte(QMC5883L_REGISTER_CONTROL_2, 1 << 7)))
     return;
-  }
   delay(10);
 
   if (this->drdy_pin_) {
     this->drdy_pin_->setup();
+    if (this->drdy_pin_->is_internal()) {
+      static_cast<InternalGPIOPin *>(this->drdy_pin_)
+          ->attach_interrupt(&QMC5883LComponent::gpio_intr, this, gpio::INTERRUPT_RISING_EDGE);
+      this->drdy_use_isr_ = true;
+      this->stop_poller();
+    }
   }
 
   uint8_t control_1 = 0;
@@ -42,40 +47,28 @@ void QMC5883LComponent::setup() {
   control_1 |= this->datarate_ << 2;
   control_1 |= this->range_ << 4;
   control_1 |= this->oversampling_ << 6;
-  if (!this->write_byte(QMC5883L_REGISTER_CONTROL_1, control_1)) {
-    this->error_code_ = COMMUNICATION_FAILED;
-    this->mark_failed();
+  if (!this->setup_check(this->write_byte(QMC5883L_REGISTER_CONTROL_1, control_1)))
     return;
-  }
 
   uint8_t control_2 = 0;
   control_2 |= 0b0 << 7;  // SOFT_RST (Soft Reset) -> 0b00=disabled, 0b01=enabled
   control_2 |= 0b0 << 6;  // ROL_PNT (Pointer Roll Over) -> 0b00=disabled, 0b01=enabled
   control_2 |= 0b0 << 0;  // INT_ENB (Interrupt) -> 0b00=disabled, 0b01=enabled
-  if (!this->write_byte(QMC5883L_REGISTER_CONTROL_2, control_2)) {
-    this->error_code_ = COMMUNICATION_FAILED;
-    this->mark_failed();
+  if (!this->setup_check(this->write_byte(QMC5883L_REGISTER_CONTROL_2, control_2)))
     return;
-  }
 
   uint8_t period = 0x01;  // recommended value
-  if (!this->write_byte(QMC5883L_REGISTER_PERIOD, period)) {
-    this->error_code_ = COMMUNICATION_FAILED;
-    this->mark_failed();
+  if (!this->setup_check(this->write_byte(QMC5883L_REGISTER_PERIOD, period)))
     return;
-  }
 
-  if (this->get_update_interval() < App.get_loop_interval()) {
-    high_freq_.start();
+  if (!this->drdy_use_isr_ && this->get_update_interval() < App.get_loop_interval()) {
+    this->high_freq_.start();
   }
 }
 
 void QMC5883LComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "QMC5883L:");
   LOG_I2C_DEVICE(this);
-  if (this->error_code_ == COMMUNICATION_FAILED) {
-    ESP_LOGE(TAG, ESP_LOG_MSG_COMM_FAIL);
-  }
   LOG_UPDATE_INTERVAL(this);
 
   LOG_SENSOR("  ", "X Axis", this->x_sensor_);
@@ -84,23 +77,39 @@ void QMC5883LComponent::dump_config() {
   LOG_SENSOR("  ", "Heading", this->heading_sensor_);
   LOG_SENSOR("  ", "Temperature", this->temperature_sensor_);
   LOG_PIN("  DRDY Pin: ", this->drdy_pin_);
+  if (this->drdy_pin_ != nullptr) {
+    ESP_LOGCONFIG(TAG, "  DRDY mode: %s",
+                  this->drdy_use_isr_ ? LOG_STR_LITERAL("interrupt") : LOG_STR_LITERAL("polling"));
+  }
 }
 
 void QMC5883LComponent::update() {
-  i2c::ErrorCode err;
-  uint8_t status = false;
-
-  // If DRDY pin is configured and the data is not ready return.
+  // If DRDY is on an external expander we keep the polling path and early-return
+  // if data is not ready yet. Internal DRDY pins take the ISR path via loop().
   if (this->drdy_pin_ && !this->drdy_pin_->digital_read()) {
     return;
   }
+  this->read_sensor_();
+}
+
+void QMC5883LComponent::loop() {
+  this->disable_loop();
+  if (!this->drdy_use_isr_ || !this->drdy_pin_->digital_read()) {
+    return;
+  }
+  this->read_sensor_();
+}
+
+void QMC5883LComponent::read_sensor_() {
+  i2c::ErrorCode err;
+  uint8_t status = false;
 
   // Status byte gets cleared when data is read, so we have to read this first.
   // If status and two axes are desired, it's possible to save one byte of traffic by enabling
   // ROL_PNT in setup and reading 7 bytes starting at the status register.
   // If status and all three axes are desired, using ROL_PNT saves you 3 bytes.
   // But simply not reading status saves you 4 bytes always and is much simpler.
-  if (ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_DEBUG) {
+  if (ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE) {
     err = this->read_register(QMC5883L_REGISTER_STATUS, &status, 1);
     if (err != i2c::ERROR_OK) {
       char buf[32];
@@ -150,7 +159,7 @@ void QMC5883LComponent::update() {
   const float y = int16_t(raw[1]) * mg_per_bit * 0.1f;
   const float z = int16_t(raw[2]) * mg_per_bit * 0.1f;
 
-  float heading = atan2f(0.0f - x, y) * 180.0f / M_PI;
+  float heading = atan2f(0.0f - x, y) * 180.0f / std::numbers::pi_v<float>;
 
   float temp = NAN;
   if (this->temperature_sensor_ != nullptr) {
@@ -165,19 +174,14 @@ void QMC5883LComponent::update() {
     temp = int16_t(raw_temp) * 0.01f;
   }
 
-  ESP_LOGD(TAG, "Got x=%0.02fµT y=%0.02fµT z=%0.02fµT heading=%0.01f° temperature=%0.01f°C status=%u", x, y, z, heading,
+  ESP_LOGV(TAG, "Got x=%0.02fµT y=%0.02fµT z=%0.02fµT heading=%0.01f° temperature=%0.01f°C status=%u", x, y, z, heading,
            temp, status);
 
-  if (this->x_sensor_ != nullptr)
-    this->x_sensor_->publish_state(x);
-  if (this->y_sensor_ != nullptr)
-    this->y_sensor_->publish_state(y);
-  if (this->z_sensor_ != nullptr)
-    this->z_sensor_->publish_state(z);
-  if (this->heading_sensor_ != nullptr)
-    this->heading_sensor_->publish_state(heading);
-  if (this->temperature_sensor_ != nullptr)
-    this->temperature_sensor_->publish_state(temp);
+  PUBLISH_STATE(this->x_sensor_, x);
+  PUBLISH_STATE(this->y_sensor_, y);
+  PUBLISH_STATE(this->z_sensor_, z);
+  PUBLISH_STATE(this->heading_sensor_, heading);
+  PUBLISH_STATE(this->temperature_sensor_, temp);
 }
 
 i2c::ErrorCode QMC5883LComponent::read_bytes_16_le_(uint8_t a_register, uint16_t *data, uint8_t len) {
@@ -189,5 +193,4 @@ i2c::ErrorCode QMC5883LComponent::read_bytes_16_le_(uint8_t a_register, uint16_t
   return err;
 }
 
-}  // namespace qmc5883l
-}  // namespace esphome
+}  // namespace esphome::qmc5883l

@@ -6,10 +6,9 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace cst816 {
+namespace esphome::cst816 {
 
-static const char *const TAG = "cst816.touchscreen";
+ESPHOME_LOG_TAG(TAG, "cst816.touchscreen");
 
 static const uint8_t REG_STATUS = 0x00;
 static const uint8_t REG_TOUCH_NUM = 0x02;
@@ -33,12 +32,7 @@ static const uint8_t CST816D_CHIP_ID = 0xB6;
 static const uint8_t CST816T_CHIP_ID = 0xB5;
 static const uint8_t CST716_CHIP_ID = 0x20;
 
-class CST816ButtonListener {
- public:
-  virtual void update_button(bool state) = 0;
-};
-
-class CST816Touchscreen : public touchscreen::Touchscreen, public i2c::I2CDevice {
+class CST816Touchscreen final : public touchscreen::Touchscreen, public i2c::I2CDevice {
  public:
   void setup() override;
   void update_touches() override;
@@ -57,5 +51,4 @@ class CST816Touchscreen : public touchscreen::Touchscreen, public i2c::I2CDevice
   bool skip_probe_{};  // if set, do not expect to be able to probe the controller on the i2c bus.
 };
 
-}  // namespace cst816
-}  // namespace esphome
+}  // namespace esphome::cst816

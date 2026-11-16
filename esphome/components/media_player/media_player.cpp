@@ -1,13 +1,13 @@
 #include "media_player.h"
-#include "esphome/core/defines.h"
 #include "esphome/core/controller_registry.h"
+#include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "esphome/core/progmem.h"
 
-namespace esphome {
-namespace media_player {
+namespace esphome::media_player {
 
-static const char *const TAG = "media_player";
+ESPHOME_LOG_TAG(TAG, "media_player");
 
 const char *media_player_state_to_string(MediaPlayerState state) {
   switch (state) {
@@ -78,19 +78,12 @@ const char *media_player_command_to_string(MediaPlayerCommand command) {
 }
 
 void MediaPlayerTraits::set_supports_pause(bool supports_pause) {
-  if (supports_pause) {
-    this->feature_flags_ |= MediaPlayerEntityFeature::PAUSE | MediaPlayerEntityFeature::PLAY;
-  } else {
-    this->feature_flags_ &= ~(MediaPlayerEntityFeature::PAUSE | MediaPlayerEntityFeature::PLAY);
-  }
+  assign_bits(this->feature_flags_, MediaPlayerEntityFeature::PAUSE | MediaPlayerEntityFeature::PLAY, supports_pause);
 }
 
 void MediaPlayerTraits::set_supports_turn_off_on(bool supports_turn_off_on) {
-  if (supports_turn_off_on) {
-    this->feature_flags_ |= MediaPlayerEntityFeature::TURN_OFF | MediaPlayerEntityFeature::TURN_ON;
-  } else {
-    this->feature_flags_ &= ~(MediaPlayerEntityFeature::TURN_OFF | MediaPlayerEntityFeature::TURN_ON);
-  }
+  assign_bits(this->feature_flags_, MediaPlayerEntityFeature::TURN_OFF | MediaPlayerEntityFeature::TURN_ON,
+              supports_turn_off_on);
 }
 
 void MediaPlayerCall::validate_() {
@@ -110,20 +103,20 @@ void MediaPlayerCall::validate_() {
 }
 
 void MediaPlayerCall::perform() {
-  ESP_LOGD(TAG, "'%s' - Setting", this->parent_->get_name().c_str());
+  ESP_LOGV(TAG, "'%s' - Setting", LOG_STR_ARG(this->parent_->get_log_name()));
   this->validate_();
   if (this->command_.has_value()) {
     const char *command_s = media_player_command_to_string(this->command_.value());
-    ESP_LOGD(TAG, "  Command: %s", command_s);
+    ESP_LOGV(TAG, "  Command: %s", command_s);
   }
   if (this->media_url_.has_value()) {
-    ESP_LOGD(TAG, "  Media URL: %s", this->media_url_.value().c_str());
+    ESP_LOGV(TAG, "  Media URL: %s", this->media_url_.value().c_str());
   }
   if (this->volume_.has_value()) {
-    ESP_LOGD(TAG, "  Volume: %.2f", this->volume_.value());
+    ESP_LOGV(TAG, "  Volume: %.2f", this->volume_.value());
   }
   if (this->announcement_.has_value()) {
-    ESP_LOGD(TAG, " Announcement: %s", this->announcement_.value() ? "yes" : "no");
+    ESP_LOGV(TAG, " Announcement: %s", this->announcement_.value() ? LOG_STR_LITERAL("yes") : LOG_STR_LITERAL("no"));
   }
   this->parent_->control(*this);
 }
@@ -178,7 +171,7 @@ MediaPlayerCall &MediaPlayerCall::set_command(const char *command) {
   } else if (ESPHOME_strcasecmp_P(command, ESPHOME_PSTR("GROUP_JOIN")) == 0) {
     this->set_command(MEDIA_PLAYER_COMMAND_GROUP_JOIN);
   } else {
-    ESP_LOGW(TAG, "'%s' - Unrecognized command %s", this->parent_->get_name().c_str(), command);
+    ESP_LOGW(TAG, "'%s' - Unrecognized command %s", LOG_STR_ARG(this->parent_->get_log_name()), command);
   }
   return *this;
 }
@@ -198,16 +191,11 @@ MediaPlayerCall &MediaPlayerCall::set_announcement(bool announce) {
   return *this;
 }
 
-void MediaPlayer::add_on_state_callback(std::function<void()> &&callback) {
-  this->state_callback_.add(std::move(callback));
-}
-
 void MediaPlayer::publish_state() {
-  this->state_callback_.call();
+  this->state_callback_.call(this->state);
 #if defined(USE_MEDIA_PLAYER) && defined(USE_CONTROLLER_REGISTRY)
   ControllerRegistry::notify_media_player_update(this);
 #endif
 }
 
-}  // namespace media_player
-}  // namespace esphome
+}  // namespace esphome::media_player

@@ -3,14 +3,15 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace uponor_smatrix {
+#include <cinttypes>
 
-static const char *const TAG = "uponor_smatrix.climate";
+namespace esphome::uponor_smatrix {
+
+ESPHOME_LOG_TAG(TAG, "uponor_smatrix.climate");
 
 void UponorSmatrixClimate::dump_config() {
   LOG_CLIMATE("", "Uponor Smatrix Climate", this);
-  ESP_LOGCONFIG(TAG, "  Device address: 0x%08X", this->address_);
+  ESP_LOGCONFIG(TAG, "  Device address: 0x%08" PRIX32, this->address_);
 }
 
 void UponorSmatrixClimate::loop() {
@@ -46,7 +47,7 @@ void UponorSmatrixClimate::control(const climate::ClimateCall &call) {
   if (val.has_value()) {
     uint16_t temp = celsius_to_raw(*val);
     if (this->preset == climate::CLIMATE_PRESET_ECO) {
-      // During ECO mode, the thermostat automatically substracts the setback value from the setpoint,
+      // During ECO mode, the thermostat automatically subtracts the setback value from the setpoint,
       // so we need to add it here first
       temp += this->eco_setback_value_raw_;
     }
@@ -67,7 +68,7 @@ void UponorSmatrixClimate::on_device_data(const UponorSmatrixData *data, size_t 
         this->max_temperature_ = raw_to_celsius(data[i].value);
         break;
       case UPONOR_ID_TARGET_TEMP:
-        // Ignore invalid values here as they are used by the controller to explicitely request the setpoint from a
+        // Ignore invalid values here as they are used by the controller to explicitly request the setpoint from a
         // thermostat
         if (data[i].value != UPONOR_INVALID_VALUE)
           this->target_temperature_raw_ = data[i].value;
@@ -98,5 +99,4 @@ void UponorSmatrixClimate::on_device_data(const UponorSmatrixData *data, size_t 
   this->last_data_ = millis();
 }
 
-}  // namespace uponor_smatrix
-}  // namespace esphome
+}  // namespace esphome::uponor_smatrix

@@ -3,12 +3,10 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include <TinyGPSPlus.h>
 
-#include <vector>
-
-namespace esphome {
-namespace gps {
+namespace esphome::gps {
 
 class GPS;
 
@@ -23,16 +21,17 @@ class GPSListener {
   GPS *parent_;
 };
 
-class GPS : public PollingComponent, public uart::UARTDevice {
- public:
-  void set_latitude_sensor(sensor::Sensor *latitude_sensor) { this->latitude_sensor_ = latitude_sensor; }
-  void set_longitude_sensor(sensor::Sensor *longitude_sensor) { this->longitude_sensor_ = longitude_sensor; }
-  void set_speed_sensor(sensor::Sensor *speed_sensor) { this->speed_sensor_ = speed_sensor; }
-  void set_course_sensor(sensor::Sensor *course_sensor) { this->course_sensor_ = course_sensor; }
-  void set_altitude_sensor(sensor::Sensor *altitude_sensor) { this->altitude_sensor_ = altitude_sensor; }
-  void set_satellites_sensor(sensor::Sensor *satellites_sensor) { this->satellites_sensor_ = satellites_sensor; }
-  void set_hdop_sensor(sensor::Sensor *hdop_sensor) { this->hdop_sensor_ = hdop_sensor; }
+class GPS final : public PollingComponent, public uart::UARTDevice {
+  SUB_SENSOR(latitude)
+  SUB_SENSOR(longitude)
+  SUB_SENSOR(speed)
+  SUB_SENSOR(course)
+  SUB_SENSOR(altitude)
+  SUB_SENSOR(satellites)
+  SUB_SENSOR(hdop)
 
+ public:
+  SLOT_LIST_REQUIRES(GPS_LISTENER_COUNT)
   void register_listener(GPSListener *listener) {
     listener->parent_ = this;
     this->listeners_.push_back(listener);
@@ -55,17 +54,8 @@ class GPS : public PollingComponent, public uart::UARTDevice {
   uint16_t satellites_{0};
   bool has_time_{false};
 
-  sensor::Sensor *latitude_sensor_{nullptr};
-  sensor::Sensor *longitude_sensor_{nullptr};
-  sensor::Sensor *speed_sensor_{nullptr};
-  sensor::Sensor *course_sensor_{nullptr};
-  sensor::Sensor *altitude_sensor_{nullptr};
-  sensor::Sensor *satellites_sensor_{nullptr};
-  sensor::Sensor *hdop_sensor_{nullptr};
-
   TinyGPSPlus tiny_gps_;
-  std::vector<GPSListener *> listeners_{};
+  [[no_unique_address]] SlotList<GPSListener *, GPS_LISTENER_COUNT> listeners_;
 };
 
-}  // namespace gps
-}  // namespace esphome
+}  // namespace esphome::gps

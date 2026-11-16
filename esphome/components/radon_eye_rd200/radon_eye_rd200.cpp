@@ -1,14 +1,14 @@
 #include "radon_eye_rd200.h"
 #include "esphome/components/esp32_ble/ble_uuid.h"
+#include "esphome/core/helpers.h"
 
 #include <cstring>
 
 #ifdef USE_ESP32
 
-namespace esphome {
-namespace radon_eye_rd200 {
+namespace esphome::radon_eye_rd200 {
 
-static const char *const TAG = "radon_eye_rd200";
+ESPHOME_LOG_TAG(TAG, "radon_eye_rd200");
 
 static const esp32_ble_tracker::ESPBTUUID SERVICE_UUID_V1 =
     esp32_ble_tracker::ESPBTUUID::from_raw("00001523-1212-efde-1523-785feabcd123");
@@ -154,22 +154,15 @@ void RadonEyeRD200::read_sensors_(uint8_t *value, uint16_t value_len) {
     memcpy(&temp, value + 10, sizeof(float));
     radon_month = temp * convert_to_bwpm3;
   } else if (command == WRITE_COMMAND_V2) {
-    // Use memcpy to avoid unaligned memory access
-    uint16_t temp;
-    memcpy(&temp, value + 33, sizeof(uint16_t));
-    radon_now = temp;
-    memcpy(&temp, value + 35, sizeof(uint16_t));
-    radon_day = temp;
-    memcpy(&temp, value + 37, sizeof(uint16_t));
-    radon_month = temp;
+    radon_now = encode_value_le<uint16_t>(value + 33);
+    radon_day = encode_value_le<uint16_t>(value + 35);
+    radon_month = encode_value_le<uint16_t>(value + 37);
   } else {
     ESP_LOGW(TAG, "Unexpected command value: 0x%02X", command);
     return;
   }
 
-  if (this->radon_sensor_ != nullptr) {
-    this->radon_sensor_->publish_state(radon_now);
-  }
+  PUBLISH_STATE(this->radon_sensor_, radon_now);
 
   if (this->radon_long_term_sensor_ != nullptr) {
     if (radon_month > 0) {
@@ -211,7 +204,6 @@ void RadonEyeRD200::dump_config() {
 
 RadonEyeRD200::RadonEyeRD200() : PollingComponent(10000) {}
 
-}  // namespace radon_eye_rd200
-}  // namespace esphome
+}  // namespace esphome::radon_eye_rd200
 
 #endif  // USE_ESP32

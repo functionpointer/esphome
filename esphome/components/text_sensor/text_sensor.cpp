@@ -6,21 +6,15 @@
 
 namespace esphome::text_sensor {
 
-static const char *const TAG = "text_sensor";
+ESPHOME_LOG_TAG(TAG, "text_sensor");
 
 void log_text_sensor(const char *tag, const char *prefix, const char *type, TextSensor *obj) {
-  if (obj == nullptr) {
+  if (!log_entity_header(tag, prefix, type, obj)) {
     return;
   }
-
-  ESP_LOGCONFIG(tag, "%s%s '%s'", prefix, type, obj->get_name().c_str());
   LOG_ENTITY_DEVICE_CLASS(tag, prefix, *obj);
   LOG_ENTITY_ICON(tag, prefix, *obj);
 }
-
-void TextSensor::publish_state(const std::string &state) { this->publish_state(state.data(), state.size()); }
-
-void TextSensor::publish_state(const char *state) { this->publish_state(state, strlen(state)); }
 
 void TextSensor::publish_state(const char *state, size_t len) {
 #ifdef USE_TEXT_SENSOR_FILTER
@@ -31,25 +25,33 @@ void TextSensor::publish_state(const char *state, size_t len) {
     if (len != this->state.size() || memcmp(state, this->state.data(), len) != 0) {
       this->state.assign(state, len);
     }
+#ifdef USE_TEXT_SENSOR_FILTER
     this->raw_callback_.call(this->state);
-    ESP_LOGV(TAG, "'%s': Received new state %s", this->name_.c_str(), this->state.c_str());
+#endif
+    ESP_LOGV(TAG, "'%s': Received new state %s", LOG_STR_ARG(this->get_log_name()), this->state.c_str());
     this->notify_frontend_();
 #ifdef USE_TEXT_SENSOR_FILTER
   } else {
     // Has filters: need separate raw storage
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     // Only assign if changed to avoid heap allocation
-    if (len != this->raw_state.size() || memcmp(state, this->raw_state.data(), len) != 0) {
-      this->raw_state.assign(state, len);
+    if (len != this->raw_state_.size() || memcmp(state, this->raw_state_.data(), len) != 0) {
+      this->raw_state_.assign(state, len);
     }
-    this->raw_callback_.call(this->raw_state);
-    ESP_LOGV(TAG, "'%s': Received new state %s", this->name_.c_str(), this->raw_state.c_str());
-    this->filter_list_->input(this->raw_state);
-#pragma GCC diagnostic pop
+    this->raw_callback_.call(this->raw_state_);
+    ESP_LOGV(TAG, "'%s': Received new state %s", LOG_STR_ARG(this->get_log_name()), this->raw_state_.c_str());
+    this->filter_list_->input(this->raw_state_);
   }
 #endif
 }
+
+#ifdef USE_ESP8266
+void TextSensor::publish_state(ProgmemStr state) {
+  char buf[256];
+  strncpy_P(buf, reinterpret_cast<PGM_P>(state), sizeof(buf));
+  buf[sizeof(buf) - 1] = '\0';
+  this->publish_state(buf);
+}
+#endif
 
 #ifdef USE_TEXT_SENSOR_FILTER
 void TextSensor::add_filter(Filter *filter) {
@@ -81,32 +83,40 @@ void TextSensor::clear_filters() {
   }
   this->filter_list_ = nullptr;
 }
+#ifdef USE_TEXT_SENSOR_FILTER_RESET
+Filter *TextSensor::detach_filters() {
+  Filter *filters = this->filter_list_;
+  if (filters == nullptr)
+    return nullptr;
+  // Reset first, so a timeout armed by an earlier value does not send it while detached
+  filters->reset_chain();
+  this->filter_list_ = nullptr;
+  if (this->raw_state_ != this->state)
+    this->internal_send_state_to_frontend(this->raw_state_);
+  return filters;
+}
+void TextSensor::attach_filters(Filter *filters) {
+  if (filters == nullptr)
+    return;
+  this->filter_list_ = filters;
+  // Values published while detached skipped the filters, which may change the current one (a map, for example)
+  if (this->has_state()) {
+    this->raw_state_ = this->state;
+    filters->input(this->raw_state_);
+  }
+}
+#endif
 #endif  // USE_TEXT_SENSOR_FILTER
-
-void TextSensor::add_on_state_callback(std::function<void(const std::string &)> callback) {
-  this->callback_.add(std::move(callback));
-}
-void TextSensor::add_on_raw_state_callback(std::function<void(const std::string &)> callback) {
-  this->raw_callback_.add(std::move(callback));
-}
 
 const std::string &TextSensor::get_state() const { return this->state; }
 const std::string &TextSensor::get_raw_state() const {
 #ifdef USE_TEXT_SENSOR_FILTER
   if (this->filter_list_ != nullptr) {
-    // Suppress deprecation warning - get_raw_state() is the replacement API
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return this->raw_state;
-#pragma GCC diagnostic pop
+    return this->raw_state_;
   }
 #endif
   return this->state;  // No filters, raw == filtered
 }
-void TextSensor::internal_send_state_to_frontend(const std::string &state) {
-  this->internal_send_state_to_frontend(state.data(), state.size());
-}
-
 void TextSensor::internal_send_state_to_frontend(const char *state, size_t len) {
   // Only assign if changed to avoid heap allocation
   if (len != this->state.size() || memcmp(state, this->state.data(), len) != 0) {
@@ -117,7 +127,7 @@ void TextSensor::internal_send_state_to_frontend(const char *state, size_t len) 
 
 void TextSensor::notify_frontend_() {
   this->set_has_state(true);
-  ESP_LOGD(TAG, "'%s' >> '%s'", this->name_.c_str(), this->state.c_str());
+  ESP_LOGV(TAG, "'%s' >> '%s'", LOG_STR_ARG(this->get_log_name()), this->state.c_str());
   this->callback_.call(this->state);
 #if defined(USE_TEXT_SENSOR) && defined(USE_CONTROLLER_REGISTRY)
   ControllerRegistry::notify_text_sensor_update(this);

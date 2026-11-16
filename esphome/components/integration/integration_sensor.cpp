@@ -3,10 +3,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace integration {
+namespace esphome::integration {
 
-static const char *const TAG = "integration";
+ESPHOME_LOG_TAG(TAG, "integration");
 
 void IntegrationSensor::setup() {
   if (this->restore_) {
@@ -19,7 +18,7 @@ void IntegrationSensor::setup() {
   this->last_update_ = millis();
 
   this->publish_and_save_(this->result_);
-  this->sensor_->add_on_state_callback([this](float state) { this->process_sensor_value_(state); });
+  this->source_sensor_->add_on_state_callback([this](float state) { this->process_sensor_value_(state); });
 }
 void IntegrationSensor::dump_config() { LOG_SENSOR("", "Integration Sensor", this); }
 void IntegrationSensor::process_sensor_value_(float value) {
@@ -47,5 +46,4 @@ void IntegrationSensor::process_sensor_value_(float value) {
   this->publish_and_save_(this->result_ + area);
 }
 
-}  // namespace integration
-}  // namespace esphome
+}  // namespace esphome::integration

@@ -34,7 +34,9 @@ class Button : public EntityBase {
    *
    * @param callback The void() callback.
    */
-  void add_on_press_callback(std::function<void()> &&callback);
+  template<typename F> void add_on_press_callback(F &&callback) {
+    this->press_callback_.add(std::forward<F>(callback));
+  }
 
  protected:
   /** You should implement this virtual method if you want to create your own button.
@@ -42,6 +44,16 @@ class Button : public EntityBase {
   virtual void press_action() = 0;
 
   LazyCallbackManager<void()> press_callback_{};
+};
+
+/// Calls the codegen-generated Fn(this) on a press; the hub and any publish are baked into Fn.
+template<auto Fn> class ApplyButton final : public Button {
+ public:
+  // Not "= default": placement new would zero-fill .bss that is already zero.
+  ApplyButton() {}
+
+ protected:
+  void press_action() override { Fn(this); }
 };
 
 }  // namespace esphome::button

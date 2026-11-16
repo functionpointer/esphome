@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/preferences.h"
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
@@ -21,8 +22,7 @@
  * On receipt of a data packet, it should call `this->process_()` with the data.
  */
 
-namespace esphome {
-namespace packet_transport {
+namespace esphome::packet_transport {
 
 // std::less provides allocation-free comparison with const char *
 template<typename T> using string_map_t = std::map<std::string, T, std::less<>>;
@@ -37,11 +37,14 @@ struct Provider {
 #endif
 };
 
+class PacketTransport;
+
 #ifdef USE_SENSOR
 struct Sensor {
   sensor::Sensor *sensor;
   const char *id;
   bool updated;
+  PacketTransport *parent;
 };
 #endif
 #ifdef USE_BINARY_SENSOR
@@ -49,6 +52,7 @@ struct BinarySensor {
   binary_sensor::BinarySensor *sensor;
   const char *id;
   bool updated;
+  PacketTransport *parent;
 };
 #endif
 
@@ -60,8 +64,9 @@ class PacketTransport : public PollingComponent {
   void dump_config() override;
 
 #ifdef USE_SENSOR
+  void set_sensor_storage(std::span<Sensor> storage) { this->sensors_.init(storage); }
   void add_sensor(const char *id, sensor::Sensor *sensor) {
-    Sensor st{sensor, id, true};
+    Sensor st{sensor, id, true, this};
     this->sensors_.push_back(st);
   }
   void add_remote_sensor(const char *hostname, const char *remote_id, sensor::Sensor *sensor) {
@@ -70,8 +75,9 @@ class PacketTransport : public PollingComponent {
   }
 #endif
 #ifdef USE_BINARY_SENSOR
+  void set_binary_sensor_storage(std::span<BinarySensor> storage) { this->binary_sensors_.init(storage); }
   void add_binary_sensor(const char *id, binary_sensor::BinarySensor *sensor) {
-    BinarySensor st{sensor, id, true};
+    BinarySensor st{sensor, id, true, this};
     this->binary_sensors_.push_back(st);
   }
 
@@ -99,7 +105,7 @@ class PacketTransport : public PollingComponent {
   void set_encryption_key(std::vector<uint8_t> key) { this->encryption_key_ = std::move(key); }
   void set_rolling_code_enable(bool enable) { this->rolling_code_enable_ = enable; }
   void set_ping_pong_enable(bool enable) { this->ping_pong_enable_ = enable; }
-  void set_ping_pong_recycle_time(uint32_t recycle_time) { this->ping_pong_recyle_time_ = recycle_time; }
+  void set_ping_pong_recycle_time(uint32_t recycle_time) { this->ping_pong_recycle_time_ = recycle_time; }
   void set_provider_encryption(const char *name, std::vector<uint8_t> key) {
     this->providers_[name].encryption_key = std::move(key);
   }
@@ -131,7 +137,7 @@ class PacketTransport : public PollingComponent {
   uint32_t rolling_code_[2]{};
   bool rolling_code_enable_{};
   bool ping_pong_enable_{};
-  uint32_t ping_pong_recyle_time_{};
+  uint32_t ping_pong_recycle_time_{};
   uint32_t last_key_time_{};
   bool resend_ping_key_{};
   bool is_provider_{};
@@ -141,11 +147,11 @@ class PacketTransport : public PollingComponent {
   std::vector<uint8_t> encryption_key_{};
 
 #ifdef USE_SENSOR
-  std::vector<Sensor> sensors_{};
+  StaticFixedVector<Sensor> sensors_;
   string_map_t<string_map_t<sensor::Sensor *>> remote_sensors_{};
 #endif
 #ifdef USE_BINARY_SENSOR
-  std::vector<BinarySensor> binary_sensors_{};
+  StaticFixedVector<BinarySensor> binary_sensors_;
   string_map_t<string_map_t<binary_sensor::BinarySensor *>> remote_binary_sensors_{};
 #endif
 
@@ -161,5 +167,4 @@ class PacketTransport : public PollingComponent {
   bool is_encrypted_() const { return !this->encryption_key_.empty(); }
 };
 
-}  // namespace packet_transport
-}  // namespace esphome
+}  // namespace esphome::packet_transport

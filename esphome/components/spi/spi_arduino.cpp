@@ -1,17 +1,16 @@
 #include "spi.h"
-#include <vector>
 
 namespace esphome::spi {
 #if defined(USE_ARDUINO) && !defined(USE_ESP32)
 
-static const char *const TAG = "spi-esp-arduino";
+ESPHOME_LOG_TAG(TAG, "spi");
 class SPIDelegateHw : public SPIDelegate {
  public:
   SPIDelegateHw(SPIInterface channel, uint32_t data_rate, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin)
       : SPIDelegate(data_rate, bit_order, mode, cs_pin), channel_(channel) {}
 
   void begin_transaction() override {
-#ifdef USE_RP2040
+#ifdef USE_RP2
     SPISettings const settings(this->data_rate_, static_cast<BitOrder>(this->bit_order_), this->mode_);
 #elif defined(ESP8266)
     // Arduino ESP8266 library has mangled values for SPI modes :-(
@@ -41,19 +40,11 @@ class SPIDelegateHw : public SPIDelegate {
       this->channel_->transfer(*ptr);
       return;
     }
-#ifdef USE_RP2040
+#ifdef USE_RP2
     this->channel_->transfer(ptr, nullptr, length);
 #elif defined(USE_ESP8266)
-    // ESP8266 SPI library requires the pointer to be word aligned, but the data may not be
-    // so we need to copy the data to a temporary buffer
-    if (reinterpret_cast<uintptr_t>(ptr) & 0x3) {
-      ESP_LOGVV(TAG, "SPI write buffer not word aligned, copying to temporary buffer");
-      auto txbuf = std::vector<uint8_t>(length);
-      memcpy(txbuf.data(), ptr, length);
-      this->channel_->writeBytes(txbuf.data(), length);
-    } else {
-      this->channel_->writeBytes(ptr, length);
-    }
+    // writeBytes() needs a word aligned pointer; transferBytes() bounces unaligned chunks through a stack buffer
+    this->channel_->transferBytes(ptr, nullptr, length);
 #else
     this->channel_->writeBytes(ptr, length);
 #endif
@@ -65,39 +56,32 @@ class SPIDelegateHw : public SPIDelegate {
   SPIInterface channel_{};
 };
 
-class SPIBusHw : public SPIBus {
- public:
-  SPIBusHw(GPIOPin *clk, GPIOPin *sdo, GPIOPin *sdi, SPIInterface channel) : SPIBus(clk, sdo, sdi), channel_(channel) {
+bool SPIComponent::setup_hw_bus_() {
+  SPIInterface channel = this->interface_;
+  const int clk = Utility::get_pin_no(this->clk_pin_);
+  const int sdi = Utility::get_pin_no(this->sdi_pin_);
+  const int sdo = Utility::get_pin_no(this->sdo_pin_);
 #ifdef USE_ESP8266
-    channel->pins(Utility::get_pin_no(clk), Utility::get_pin_no(sdi), Utility::get_pin_no(sdo), -1);
-    channel->begin();
+  channel->pins(clk, sdi, sdo, -1);
+  channel->begin();
 #endif  // USE_ESP8266
 #ifdef USE_ESP32
-    channel->begin(Utility::get_pin_no(clk), Utility::get_pin_no(sdi), Utility::get_pin_no(sdo), -1);
+  channel->begin(clk, sdi, sdo, -1);
 #endif
-#ifdef USE_RP2040
-    if (Utility::get_pin_no(sdi) != -1)
-      channel->setRX(Utility::get_pin_no(sdi));
-    if (Utility::get_pin_no(sdo) != -1)
-      channel->setTX(Utility::get_pin_no(sdo));
-    channel->setSCK(Utility::get_pin_no(clk));
-    channel->begin();
+#ifdef USE_RP2
+  if (sdi != -1)
+    channel->setRX(sdi);
+  if (sdo != -1)
+    channel->setTX(sdo);
+  channel->setSCK(clk);
+  channel->begin();
 #endif
-  }
+  return true;
+}
 
-  SPIDelegate *get_delegate(uint32_t data_rate, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin,
-                            bool release_device, bool write_only) override {
-    return new SPIDelegateHw(this->channel_, data_rate, bit_order, mode, cs_pin);
-  }
-
- protected:
-  SPIInterface channel_{};
-  bool is_hw() override { return true; }
-};
-
-SPIBus *SPIComponent::get_bus(SPIInterface interface, GPIOPin *clk, GPIOPin *sdo, GPIOPin *sdi,
-                              const std::vector<uint8_t> &data_pins) {
-  return new SPIBusHw(clk, sdo, sdi, interface);
+SPIDelegate *SPIComponent::new_hw_delegate_(uint32_t data_rate, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin,
+                                            bool release_device, bool write_only) {
+  return new SPIDelegateHw(this->interface_, data_rate, bit_order, mode, cs_pin);  // NOLINT
 }
 
 #endif  // USE_ARDUINO && !USE_ESP32

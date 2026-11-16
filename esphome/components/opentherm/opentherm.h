@@ -16,18 +16,9 @@
 #include "driver/gptimer.h"
 #endif
 
-namespace esphome {
-namespace opentherm {
+namespace esphome::opentherm {
 
 template<class T> constexpr T read_bit(T value, uint8_t bit) { return (value >> bit) & 0x01; }
-
-template<class T> constexpr T set_bit(T value, uint8_t bit) { return value |= (1UL << bit); }
-
-template<class T> constexpr T clear_bit(T value, uint8_t bit) { return value &= ~(1UL << bit); }
-
-template<class T> constexpr T write_bit(T value, uint8_t bit, uint8_t bit_value) {
-  return bit_value ? set_bit(value, bit) : clear_bit(value, bit);
-}
 
 enum OperationMode {
   IDLE = 0,  // no operation
@@ -179,7 +170,7 @@ enum BitPositions { STOP_BIT = 33 };
 
 /**
  * Structure to hold Opentherm data packet content.
- * Use f88(), u16() or s16() functions to get appropriate value of data packet accoridng to id of message.
+ * Use get_f88(), get_u16() or get_s16() functions to get appropriate value of data packet according to id of message.
  */
 struct OpenthermData {
   uint8_t type;
@@ -192,32 +183,32 @@ struct OpenthermData {
   /**
    * @return float representation of data packet value
    */
-  float f88();
+  float get_f88();
 
   /**
    * @param float number to set as value of this data packet
    */
-  void f88(float value);
+  void set_f88(float value);
 
   /**
    * @return unsigned 16b integer representation of data packet value
    */
-  uint16_t u16();
+  uint16_t get_u16();
 
   /**
    * @param unsigned 16b integer number to set as value of this data packet
    */
-  void u16(uint16_t value);
+  void set_u16(uint16_t value);
 
   /**
    * @return signed 16b integer representation of data packet value
    */
-  int16_t s16();
+  int16_t get_s16();
 
   /**
    * @param signed 16b integer number to set as value of this data packet
    */
-  void s16(int16_t value);
+  void set_s16(int16_t value);
 };
 
 struct OpenThermError {
@@ -241,9 +232,9 @@ class OpenTherm {
   bool initialize();
 
   /**
-   * Start listening for Opentherm data packet comming from line connected to given pin.
+   * Start listening for Opentherm data packet coming from line connected to given pin.
    * If data packet is received then has_message() function returns true and data packet can be retrieved by calling
-   * get_message() function. If timeout > 0 then this function waits for incomming data package for timeout millis and
+   * get_message() function. If timeout > 0 then this function waits for incoming data package for timeout millis and
    * if no data packet is recevived, error state is indicated by is_error() function. If either data packet is received
    * or timeout is reached listening is stopped.
    */
@@ -257,7 +248,7 @@ class OpenTherm {
   bool has_message() { return mode_ == OperationMode::RECEIVED; }
 
   /**
-   * Use this to retrive data packed captured by listen() function. Data packet is ready when has_message() function
+   * Use this to retrieve data packed captured by listen() function. Data packet is ready when has_message() function
    * returns true. This function can be called multiple times until stop() is called.
    *
    * @param data reference to data structure to which fill the data packet data.
@@ -281,9 +272,9 @@ class OpenTherm {
   void stop();
 
   /**
-   * Get protocol error details in case a protocol error occured.
+   * Get protocol error details in case a protocol error occurred.
    * @param error reference to data structure to which fill the error details
-   * @return true if protocol error occured during last conversation, false otherwise.
+   * @return true if protocol error occurred during last conversation, false otherwise.
    */
   bool get_protocol_error(OpenThermError &error);
 
@@ -403,5 +394,4 @@ class OpenTherm {
 #endif
 };
 
-}  // namespace opentherm
-}  // namespace esphome
+}  // namespace esphome::opentherm

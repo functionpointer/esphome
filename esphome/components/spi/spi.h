@@ -2,8 +2,8 @@
 #include "esphome/core/application.h"
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
-#include <map>
 #include <utility>
 #include <vector>
 
@@ -13,19 +13,24 @@
 
 using SPIInterface = spi_host_device_t;
 
-#elif defined(USE_ARDUINO)
+#elif defined(USE_ARDUINO) && !defined(USE_LIBRETINY)
 
 #include <SPI.h>
 
-#ifdef USE_RP2040
+#ifdef USE_RP2
 using SPIInterface = SPIClassRP2040 *;
 #else
 using SPIInterface = SPIClass *;
 #endif
 
-#elif defined(CLANG_TIDY)
+#elif defined(USE_ZEPHYR)
 
-using SPIInterface = void *;  // Stub for platforms without SPI (e.g., Zephyr)
+struct device;
+using SPIInterface = const device *;
+
+#elif defined(USE_HOST) || defined(CLANG_TIDY)
+
+using SPIInterface = void *;  // Stub for platforms without SPI (e.g., host)
 
 #endif  // USE_ESP32 / USE_ARDUINO
 
@@ -33,6 +38,8 @@ using SPIInterface = void *;  // Stub for platforms without SPI (e.g., Zephyr)
  * Implementation of SPI Controller mode.
  */
 namespace esphome::spi {
+
+#define LOG_SPI_DEVICE(this) ESP_LOGCONFIG(TAG, "  CS Pin: %d", esphome::spi::Utility::get_pin_no(this->cs_));
 
 /// The bit-order for SPI devices. This defines how the data read from and written to the device is interpreted.
 enum SPIBitOrder {
@@ -127,9 +134,14 @@ class NullPin : public GPIOPin {
   }
 
  protected:
+  static NullPin instance;         // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
   static GPIOPin *const NULL_PIN;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
   // https://bugs.llvm.org/show_bug.cgi?id=48040
 };
+
+// Constant-initialized, so both are valid before any dynamic initialization runs.
+inline constinit NullPin NullPin::instance;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+inline GPIOPin *const NullPin::NULL_PIN = &NullPin::instance;
 
 class Utility {
  public:
@@ -175,6 +187,7 @@ class SPIDelegateDummy;
 // a thin wrapper over SPIClass.
 class SPIDelegate {
   friend class SPIClient;
+  friend class SPIComponent;  // hands out NULL_DELEGATE for a failed bus
 
  public:
   SPIDelegate() = default;
@@ -187,7 +200,7 @@ class SPIDelegate {
     this->cs_pin_->digital_write(true);
   }
 
-  virtual ~SPIDelegate(){};
+  virtual ~SPIDelegate() {};
 
   // enable CS if configured.
   virtual void begin_transaction() { this->cs_pin_->digital_write(false); }
@@ -222,8 +235,7 @@ class SPIDelegate {
   // write 16 bits
   virtual void write16(uint16_t data) {
     if (this->bit_order_ == BIT_ORDER_MSB_FIRST) {
-      uint16_t buffer;
-      buffer = (data >> 8) | (data << 8);
+      uint16_t buffer = byteswap(data);
       this->write_array(reinterpret_cast<const uint8_t *>(&buffer), 2);
     } else {
       this->write_array(reinterpret_cast<const uint8_t *>(&data), 2);
@@ -251,11 +263,18 @@ class SPIDelegate {
   // check if device is ready
   virtual bool is_ready();
 
+#ifdef USE_SPI_PSRAM_DMA
+  void set_psram_dma(bool enable) { this->psram_dma_ = enable; }
+#endif
+
  protected:
   SPIBitOrder bit_order_{BIT_ORDER_MSB_FIRST};
   uint32_t data_rate_{1000000};
   SPIMode mode_{MODE0};
-  GPIOPin *cs_pin_{NullPin::NULL_PIN};
+  GPIOPin *cs_pin_{&NullPin::instance};  // the address is constant, unlike NULL_PIN's value
+#ifdef USE_SPI_PSRAM_DMA
+  bool psram_dma_{false};
+#endif
   static SPIDelegate *const NULL_DELEGATE;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 };
 
@@ -268,15 +287,14 @@ class SPIDelegateDummy : public SPIDelegate {
   SPIDelegateDummy() = default;
 
   uint8_t transfer(uint8_t data) override { return 0; }
-  void end_transaction() override{};
+  void end_transaction() override {};
+  bool is_ready() override { return false; }
 
   void begin_transaction() override;
 };
 
-/**
- * An implementation of SPI that relies only on software toggling of pins.
- *
- */
+#ifdef USE_SPI_SOFTWARE
+/// An implementation of SPI that relies only on software toggling of pins.
 class SPIDelegateBitBash : public SPIDelegate {
  public:
   SPIDelegateBitBash(uint32_t clock, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin, GPIOPin *clk_pin,
@@ -310,29 +328,11 @@ class SPIDelegateBitBash : public SPIDelegate {
   }
   uint16_t transfer_(uint16_t data, size_t num_bits);
 };
-
-class SPIBus {
- public:
-  SPIBus() = default;
-
-  SPIBus(GPIOPin *clk, GPIOPin *sdo, GPIOPin *sdi) : clk_pin_(clk), sdo_pin_(sdo), sdi_pin_(sdi) {}
-
-  virtual SPIDelegate *get_delegate(uint32_t data_rate, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin,
-                                    bool release_device, bool write_only) {
-    return new SPIDelegateBitBash(data_rate, bit_order, mode, cs_pin, this->clk_pin_, this->sdo_pin_, this->sdi_pin_);
-  }
-
-  virtual bool is_hw() { return false; }
-
- protected:
-  GPIOPin *clk_pin_{};
-  GPIOPin *sdo_pin_{};
-  GPIOPin *sdi_pin_{};
-};
+#endif  // USE_SPI_SOFTWARE
 
 class SPIClient;
 
-class SPIComponent : public Component {
+class SPIComponent final : public Component {
  public:
   SPIDelegate *register_device(SPIClient *device, SPIMode mode, SPIBitOrder bit_order, uint32_t data_rate,
                                GPIOPin *cs_pin, bool release_device, bool write_only);
@@ -349,6 +349,8 @@ class SPIComponent : public Component {
     this->interface_ = interface;
     this->using_hw_ = true;
   }
+
+  SPIInterface get_interface() const { return this->interface_; }
 
   void set_interface_name(const char *name) { this->interface_name_ = name; }
 
@@ -372,11 +374,16 @@ class SPIComponent : public Component {
   SPIInterface interface_{};
   bool using_hw_{false};
   const char *interface_name_{nullptr};
-  SPIBus *spi_bus_{};
-  std::map<SPIClient *, SPIDelegate *> devices_;
+#ifdef USE_ZEPHYR
+  friend class ZephyrSPIDelegate;
+  // Delegate whose mode and frequency the driver last applied
+  const SPIDelegate *active_delegate_{nullptr};
+#endif
 
-  static SPIBus *get_bus(SPIInterface interface, GPIOPin *clk, GPIOPin *sdo, GPIOPin *sdi,
-                         const std::vector<uint8_t> &data_pins);
+  // Platform hardware bus: initialise it once, and create a delegate for a device on it
+  bool setup_hw_bus_();
+  SPIDelegate *new_hw_delegate_(uint32_t data_rate, SPIBitOrder bit_order, SPIMode mode, GPIOPin *cs_pin,
+                                bool release_device, bool write_only);
 };
 
 using QuadSPIComponent = SPIComponent;
@@ -385,6 +392,8 @@ using OctalSPIComponent = SPIComponent;
  * Base class for SPIDevice, un-templated.
  */
 class SPIClient {
+  friend class SPIComponent;
+
  public:
   SPIClient(SPIBitOrder bit_order, SPIMode mode, uint32_t data_rate)
       : bit_order_(bit_order), mode_(mode), data_rate_(data_rate) {}
@@ -393,16 +402,22 @@ class SPIClient {
     esph_log_d("spi_device", "mode %u, data_rate %ukHz", (unsigned) this->mode_, (unsigned) (this->data_rate_ / 1000));
     this->delegate_ = this->parent_->register_device(this, this->mode_, this->bit_order_, this->data_rate_, this->cs_,
                                                      this->release_device_, this->write_only_);
+#ifdef USE_SPI_PSRAM_DMA
+    this->delegate_->set_psram_dma(this->psram_dma_);
+    if (this->psram_dma_) {
+      esph_log_config("spi_device", "PSRAM DMA: enabled");
+    }
+#endif
   }
 
-  virtual void spi_teardown() {
-    this->parent_->unregister_device(this);
-    this->delegate_ = SPIDelegate::NULL_DELEGATE;
-  }
+  virtual void spi_teardown() { this->parent_->unregister_device(this); }
 
   bool spi_is_ready() { return this->delegate_->is_ready(); }
   void set_release_device(bool release) { this->release_device_ = release; }
   void set_write_only(bool write_only) { this->write_only_ = write_only; }
+#ifdef USE_SPI_PSRAM_DMA
+  void set_psram_dma(bool enable) { this->psram_dma_ = enable; }
+#endif
 
  protected:
   SPIBitOrder bit_order_{BIT_ORDER_MSB_FIRST};
@@ -412,6 +427,9 @@ class SPIClient {
   GPIOPin *cs_{nullptr};
   bool release_device_{false};
   bool write_only_{false};
+#ifdef USE_SPI_PSRAM_DMA
+  bool psram_dma_{false};
+#endif
   SPIDelegate *delegate_{SPIDelegate::NULL_DELEGATE};
 };
 
@@ -449,7 +467,7 @@ class SPIDevice : public SPIClient {
 
   uint8_t read_byte() { return this->delegate_->transfer(0); }
 
-  void read_array(uint8_t *data, size_t length) { return this->delegate_->read_array(data, length); }
+  void read_array(uint8_t *data, size_t length) { this->delegate_->read_array(data, length); }
 
   /**
    * Write a single data item, up to 32 bits.

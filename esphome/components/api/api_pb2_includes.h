@@ -15,6 +15,7 @@
 #endif
 
 #ifdef USE_LIGHT
+#include "esphome/components/light/light_effect_names.h"
 #include "esphome/components/light/light_traits.h"
 #endif
 
@@ -26,10 +27,22 @@
 #include "esphome/components/select/select_traits.h"
 #endif
 
+#ifdef USE_CRASH_REPORT
+#include "esphome/core/crash_report.h"
+#endif
+
 // Standard library includes that might be needed
 #include <set>
+#include <span>
 #include <vector>
 #include <string>
+
+#if defined(LOG_LEVEL_NONE)
+// Zephyr defines LOG_LEVEL_NONE as a logging macro that collides with the LogLevel enum value of
+// the same name in the generated api_pb2.h. Undefine it for the rest of this translation unit so
+// the enum parses; nothing below needs Zephyr's logging macro.
+#undef LOG_LEVEL_NONE
+#endif
 
 namespace esphome::api {
 

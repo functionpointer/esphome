@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -34,12 +35,19 @@ from script.analyze_component_buses import (
     ISOLATED_COMPONENTS,
     NO_BUSES_SIGNATURE,
     analyze_all_components,
+    are_buses_compatible,
     create_grouping_signature,
     is_platform_component,
     merge_compatible_bus_groups,
     uses_local_file_references,
 )
-from script.helpers import get_component_test_files
+from script.helpers import (
+    components_conflict,
+    get_component_test_files,
+    is_validate_only_file,
+    parse_test_filename,
+    split_conflicting_groups,
+)
 from script.merge_component_configs import merge_component_configs
 
 
@@ -54,6 +62,19 @@ class TestResult:
     duration: float
     command: str = ""
     test_type: str = "compile"  # "config" or "compile"
+    output: str = ""  # Captured esphome output, kept only for failed runs
+    shared_id_check: bool = (
+        False  # Grouped with partners; reproduced with its own command
+    )
+
+
+# Tests that add a second instance of a type that other tests reference by
+# its single default id. Candidates per type are in order of preference.
+SHARED_ID_COMPONENTS: dict[str, tuple[str, ...]] = {
+    "i2c": ("tca9548a",),
+    "motion": ("bmi270", "icm20689"),
+    "one_wire": ("ds2484", "ds248x"),
+}
 
 
 def show_disk_space_if_ci(esphome_command: str) -> None:
@@ -77,13 +98,50 @@ def show_disk_space_if_ci(esphome_command: str) -> None:
     print("=" * 80)
     # Use sys.stdout.flush() to ensure output appears immediately
     sys.stdout.flush()
-    subprocess.run(["df", "-h"], check=False, stdout=sys.stdout, stderr=sys.stderr)
+    # Windows has no df
+    if df := shutil.which("df"):
+        subprocess.run([df, "-h"], check=False, stdout=sys.stdout, stderr=sys.stderr)
     print("=" * 80 + "\n")
     sys.stdout.flush()
 
 
+def start_log_group(title: str) -> None:
+    """Begin a collapsible log group in the GitHub Actions log viewer.
+
+    Everything printed until the matching :func:`end_log_group` is folded away
+    by default, so the full ``esphome config``/``compile`` dump for one
+    configuration no longer pushes the pass/fail result thousands of lines down
+    the log. Outside CI this is a no-op so local runs stay plain.
+
+    Args:
+        title: Text shown on the (collapsed) group header line.
+    """
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    # Flush so the marker is ordered correctly relative to the child process
+    # output that follows (the subprocess writes straight to our stdout).
+    sys.stdout.flush()
+    print(f"::group::{title}")
+    sys.stdout.flush()
+
+
+def end_log_group() -> None:
+    """Close the collapsible log group opened by :func:`start_log_group`.
+
+    Outside CI this is a no-op.
+    """
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    sys.stdout.flush()
+    print("::endgroup::")
+    sys.stdout.flush()
+
+
 def find_component_tests(
-    components_dir: Path, component_pattern: str = "*", base_only: bool = False
+    components_dir: Path,
+    component_pattern: str = "*",
+    base_only: bool = False,
+    include_validate: bool = False,
 ) -> dict[str, list[Path]]:
     """Find all component test files.
 
@@ -91,6 +149,8 @@ def find_component_tests(
         components_dir: Path to tests/components directory
         component_pattern: Glob pattern for component names
         base_only: If True, only find base test files (test.*.yaml), not variant files (test-*.yaml)
+        include_validate: If True, also include config-only files (validate.*.yaml).
+            These are run with `esphome config` only and never compiled.
 
     Returns:
         Dictionary mapping component name to list of test files
@@ -102,26 +162,15 @@ def find_component_tests(
             continue
 
         # Get test files using helper function
-        test_files = get_component_test_files(comp_dir.name, all_variants=not base_only)
+        test_files = get_component_test_files(
+            comp_dir.name,
+            all_variants=not base_only,
+            include_validate=include_validate,
+        )
         if test_files:
             component_tests[comp_dir.name] = test_files
 
     return dict(component_tests)
-
-
-def parse_test_filename(test_file: Path) -> tuple[str, str]:
-    """Parse test filename to extract test name and platform.
-
-    Args:
-        test_file: Path to test file
-
-    Returns:
-        Tuple of (test_name, platform)
-    """
-    parts = test_file.stem.split(".")
-    if len(parts) == 2:
-        return parts[0], parts[1]  # test, platform
-    return parts[0], "all"
 
 
 def get_platform_base_files(base_dir: Path) -> dict[str, list[Path]]:
@@ -175,7 +224,32 @@ def group_components_by_platform(
     }
 
 
-def format_github_summary(test_results: list[TestResult]) -> str:
+def reproduce_commands(
+    failed_results: list[TestResult], toolchain: str | None = None
+) -> list[str]:
+    """Return copy-paste commands that reproduce the failed results."""
+    extra_arguments = f" --toolchain {toolchain}" if toolchain else ""
+
+    def command(components: list[str], platform: str, test_type: str) -> str:
+        return (
+            f"script/test_build_components.py -c {','.join(components)} "
+            f"-t {platform} -e {test_type}{extra_arguments}"
+        )
+
+    platform_components = group_components_by_platform(
+        [r for r in failed_results if not r.shared_id_check]
+    )
+    # A shared-id group runs alone so grouping recreates exactly that merge
+    return [
+        command(platform_components[key], *key) for key in sorted(platform_components)
+    ] + [
+        command(r.components, r.platform, r.test_type)
+        for r in failed_results
+        if r.shared_id_check
+    ]
+
+
+def format_github_summary(test_results: list[TestResult], toolchain=None) -> str:
     """Format test results as GitHub Actions job summary markdown.
 
     Args:
@@ -224,13 +298,9 @@ def format_github_summary(test_results: list[TestResult]) -> str:
         lines.append("<summary>Commands to reproduce failures</summary>\n\n")
         lines.append("```bash\n")
 
-        # Generate one command per platform and test type
-        platform_components = group_components_by_platform(failed_results)
-        for platform, test_type in sorted(platform_components.keys()):
-            components_csv = ",".join(platform_components[(platform, test_type)])
-            lines.append(
-                f"script/test_build_components.py -c {components_csv} -t {platform} -e {test_type}\n"
-            )
+        lines.extend(
+            f"{cmd}\n" for cmd in reproduce_commands(failed_results, toolchain)
+        )
 
         lines.append("```\n")
         lines.append("</details>\n")
@@ -274,14 +344,16 @@ def format_github_summary(test_results: list[TestResult]) -> str:
     return "".join(lines)
 
 
-def write_github_summary(test_results: list[TestResult]) -> None:
+def write_github_summary(
+    test_results: list[TestResult], toolchain: str | None = None
+) -> None:
     """Write GitHub Actions job summary with test results and timing.
 
     Args:
         test_results: List of all test results
     """
-    summary_content = format_github_summary(test_results)
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+    summary_content = format_github_summary(test_results, toolchain)
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as f:
         f.write(summary_content)
 
 
@@ -298,6 +370,12 @@ def extract_platform_with_version(base_file: Path) -> str:
     return base_file.stem.replace("build_components_base.", "")
 
 
+def _wants_skip_bootloader(skip: bool, command: str, platform: str) -> bool:
+    """Every esp32 target: idf variants, and esp32-ard, whose Arduino
+    core builds as an ESP-IDF component under the native toolchain."""
+    return skip and command == "compile" and platform.startswith("esp32")
+
+
 def run_esphome_test(
     component: str,
     test_file: Path,
@@ -308,6 +386,8 @@ def run_esphome_test(
     esphome_command: str,
     continue_on_fail: bool,
     use_testing_mode: bool = False,
+    toolchain: str | None = None,
+    skip_bootloader: bool = False,
 ) -> TestResult:
     """Run esphome test for a single component.
 
@@ -331,7 +411,7 @@ def run_esphome_test(
     output_file = build_dir / f"{component}.{test_name}.{platform_with_version}.yaml"
 
     # Copy base file and substitute component test file reference
-    base_content = base_file.read_text()
+    base_content = base_file.read_text(encoding="utf-8")
     # Get relative path from build dir to test file
     repo_root = Path(__file__).parent.parent
     component_test_ref = f"../../{test_file.relative_to(repo_root / 'tests')}"
@@ -367,60 +447,62 @@ def run_esphome_test(
         ]
     )
 
-    # Add command and config file
-    cmd.extend([esphome_command, str(output_file)])
+    if toolchain:
+        cmd.extend(["--toolchain", toolchain])
+
+    # Add command
+    cmd.append(esphome_command)
+    if _wants_skip_bootloader(skip_bootloader, esphome_command, platform):
+        cmd.append("--skip-bootloader")
+
+    # Add config file
+    cmd.append(str(output_file))
 
     # Build command string for display/logging
     cmd_str = " ".join(cmd)
 
-    # Run command
-    print(f"> [{component}] [{test_name}] [{platform_with_version}]")
+    # Run command inside a collapsible CI log group so the full esphome output
+    # for this configuration can be folded away by default.
+    group_title = f"[{component}] [{test_name}] [{platform_with_version}]"
+    start_log_group(group_title)
+    print(f"> {group_title}")
     if use_testing_mode:
         print("  (using --testing-mode)")
 
     start_time = time.time()
     test_id = f"{component}.{test_name}.{platform_with_version}"
 
+    # Always close the group, even if the subprocess or disk-space reporting
+    # raises, so later output is never folded into the wrong CI log section.
     try:
         result = subprocess.run(cmd, check=False)
-        success = result.returncode == 0
-        duration = time.time() - start_time
-
         # Show disk space after build in CI during compile
         show_disk_space_if_ci(esphome_command)
+    finally:
+        end_log_group()
 
-        if not success and not continue_on_fail:
-            # Print command immediately for failed tests
-            print(f"\n{'=' * 80}")
-            print("FAILED - Command to reproduce:")
-            print(f"{'=' * 80}")
-            print(cmd_str)
-            print()
-            raise subprocess.CalledProcessError(result.returncode, cmd)
+    success = result.returncode == 0
+    duration = time.time() - start_time
 
-        return TestResult(
-            test_id=test_id,
-            components=[component],
-            platform=platform_with_version,
-            success=success,
-            duration=duration,
-            command=cmd_str,
-            test_type=esphome_command,
-        )
-    except subprocess.CalledProcessError:
-        duration = time.time() - start_time
-        # Re-raise if we're not continuing on fail
-        if not continue_on_fail:
-            raise
-        return TestResult(
-            test_id=test_id,
-            components=[component],
-            platform=platform_with_version,
-            success=False,
-            duration=duration,
-            command=cmd_str,
-            test_type=esphome_command,
-        )
+    if not success and not continue_on_fail:
+        # Print command immediately for failed tests. The group is already
+        # closed, so the failure and reproduce command stay visible.
+        print(f"\n{'=' * 80}")
+        print("FAILED - Command to reproduce:")
+        print(f"{'=' * 80}")
+        print(cmd_str)
+        print()
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+    return TestResult(
+        test_id=test_id,
+        components=[component],
+        platform=platform_with_version,
+        success=success,
+        duration=duration,
+        command=cmd_str,
+        test_type=esphome_command,
+    )
 
 
 def run_grouped_test(
@@ -432,6 +514,9 @@ def run_grouped_test(
     tests_dir: Path,
     esphome_command: str,
     continue_on_fail: bool,
+    toolchain: str | None = None,
+    skip_bootloader: bool = False,
+    capture_output: bool = False,
 ) -> TestResult:
     """Run esphome test for a group of components with shared bus configs.
 
@@ -444,6 +529,7 @@ def run_grouped_test(
         tests_dir: Path to tests/components directory
         esphome_command: ESPHome command (config/compile)
         continue_on_fail: Whether to continue on failure
+        capture_output: Keep the esphome output in TestResult.output
 
     Returns:
         TestResult object with test details and timing
@@ -483,11 +569,12 @@ def run_grouped_test(
             duration=0.0,
             command=f"# Failed during config merge: {e}",
             test_type=esphome_command,
+            output=str(e),
         )
 
     # Create test file that includes merged config
     output_file = build_dir / f"test_{group_name}.{platform_with_version}.yaml"
-    base_content = base_file.read_text()
+    base_content = base_file.read_text(encoding="utf-8")
     merged_ref = merged_config_file.name
     output_content = base_content.replace("$component_test_file", merged_ref)
     output_file.write_text(output_content)
@@ -510,61 +597,229 @@ def run_grouped_test(
         "-s",
         "target_platform",
         platform,
-        esphome_command,
-        str(output_file),
     ]
+
+    if toolchain:
+        cmd.extend(["--toolchain", toolchain])
+
+    # Add command
+    cmd.append(esphome_command)
+    if _wants_skip_bootloader(skip_bootloader, esphome_command, platform):
+        cmd.append("--skip-bootloader")
+
+    cmd.append(str(output_file))
 
     # Build command string for display/logging
     cmd_str = " ".join(cmd)
 
-    # Run command
+    # Run command inside a collapsible CI log group so the full esphome output
+    # for this grouped configuration can be folded away by default.
     components_str = ", ".join(components)
-    print(f"> [GROUPED: {components_str}] [{platform_with_version}]")
+    group_title = f"[GROUPED: {components_str}] [{platform_with_version}]"
+    start_log_group(group_title)
+    print(f"> {group_title}")
     print("  (using --testing-mode)")
 
     start_time = time.time()
     test_id = f"GROUPED[{','.join(components)}].{platform_with_version}"
 
+    # Always close the group, even if the subprocess or disk-space reporting
+    # raises, so later output is never folded into the wrong CI log section.
     try:
-        result = subprocess.run(cmd, check=False)
-        success = result.returncode == 0
-        duration = time.time() - start_time
-
+        result = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE if capture_output else None,
+            stderr=subprocess.STDOUT if capture_output else None,
+            text=capture_output,
+        )
+        output = (result.stdout or "") if capture_output else ""
+        if output:
+            print(output, end="")
         # Show disk space after build in CI during compile
         show_disk_space_if_ci(esphome_command)
+    finally:
+        end_log_group()
 
-        if not success and not continue_on_fail:
-            # Print command immediately for failed tests
-            print(f"\n{'=' * 80}")
-            print("FAILED - Command to reproduce:")
-            print(f"{'=' * 80}")
-            print(cmd_str)
-            print()
-            raise subprocess.CalledProcessError(result.returncode, cmd)
+    success = result.returncode == 0
+    duration = time.time() - start_time
 
-        return TestResult(
-            test_id=test_id,
+    if not success and not continue_on_fail:
+        # Print command immediately for failed tests. The group is already
+        # closed, so the failure and reproduce command stay visible.
+        print(f"\n{'=' * 80}")
+        print("FAILED - Command to reproduce:")
+        print(f"{'=' * 80}")
+        print(cmd_str)
+        print()
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+    return TestResult(
+        test_id=test_id,
+        components=components,
+        platform=platform_with_version,
+        success=success,
+        duration=duration,
+        command=cmd_str,
+        test_type=esphome_command,
+        output="" if success else output,
+    )
+
+
+def _groupable_buses(
+    component: str,
+    platform: str,
+    component_buses: dict[str, dict[str, list[str]]],
+    non_groupable: set[str],
+) -> tuple[str, ...] | None:
+    """Return the common bus packages of a groupable test, or None if it is never grouped."""
+    if component in non_groupable:
+        return None
+    buses = component_buses.get(component, {}).get(platform)
+    if buses is None:
+        return None
+    signature = create_grouping_signature({platform: buses}, platform)
+    return tuple(signature.split("+")) if signature else ()
+
+
+def select_shared_id_partners(
+    component: str,
+    platform: str,
+    component_buses: dict[str, dict[str, list[str]]],
+    non_groupable: set[str],
+) -> list[str]:
+    """Pick one compatible partner per SHARED_ID_COMPONENTS type."""
+    buses = _groupable_buses(component, platform, component_buses, non_groupable)
+    if buses is None:
+        return []
+    picked: list[str] = []
+    for candidates in SHARED_ID_COMPONENTS.values():
+        for partner in candidates:
+            if partner == component:
+                continue
+            partner_buses = _groupable_buses(
+                partner, platform, component_buses, non_groupable
+            )
+            if partner_buses is None or not are_buses_compatible(buses, partner_buses):
+                continue
+            if any(
+                components_conflict(partner, m, platform) for m in (component, *picked)
+            ):
+                continue
+            picked.append(partner)
+            buses = tuple(sorted({*buses, *partner_buses}))
+            break
+    return picked
+
+
+def _config_error_excerpt(output: str, max_lines: int = 30) -> str:
+    """Return the part of esphome config output that explains the failure."""
+    lines = output.rstrip().splitlines()
+    for i, line in enumerate(lines):
+        if "Failed config" in line:
+            return "\n".join(lines[i : i + max_lines])
+    return "\n".join(lines[-max_lines:])
+
+
+def _print_shared_id_failure(
+    component: str, platform_with_version: str, partners: str, output: str
+) -> None:
+    print(f"\n{'=' * 80}")
+    print(
+        f"{component} fails config validation on {platform_with_version} "
+        f"when CI groups it with {partners}."
+    )
+    print(
+        "These tests add a second I2C bus, motion or one_wire instance; "
+        "set the id the error names (e.g. i2c_id: i2c_bus)."
+    )
+    print(f"{'=' * 80}")
+    print(_config_error_excerpt(output))
+    print(f"{'=' * 80}\n")
+
+
+@dataclass(frozen=True)
+class SharedIdContext:
+    """Settings shared by every shared-id run in a batch."""
+
+    platform_bases: dict[str, list[Path]]
+    platform_filter: str | None
+    tests_dir: Path
+    build_dir: Path
+    component_buses: dict[str, dict[str, list[str]]]
+    non_groupable: set[str]
+    toolchain: str | None = None
+    continue_on_fail: bool = True
+
+    def run_config(
+        self,
+        components: list[str],
+        platform: str,
+        platform_with_version: str,
+        base_file: Path,
+    ) -> TestResult:
+        return run_grouped_test(
             components=components,
-            platform=platform_with_version,
-            success=success,
-            duration=duration,
-            command=cmd_str,
-            test_type=esphome_command,
+            platform=platform,
+            platform_with_version=platform_with_version,
+            base_file=base_file,
+            build_dir=self.build_dir,
+            tests_dir=self.tests_dir,
+            esphome_command="config",
+            continue_on_fail=True,
+            toolchain=self.toolchain,
+            capture_output=True,
         )
-    except subprocess.CalledProcessError:
-        duration = time.time() - start_time
-        # Re-raise if we're not continuing on fail
-        if not continue_on_fail:
-            raise
-        return TestResult(
-            test_id=test_id,
-            components=components,
-            platform=platform_with_version,
-            success=False,
-            duration=duration,
-            command=cmd_str,
-            test_type=esphome_command,
+
+
+def run_shared_id_tests(
+    ctx: SharedIdContext, components: set[str], prior_results: list[TestResult]
+) -> list[TestResult]:
+    """Validate each component merged with partners that add a second candidate id.
+
+    Catches a missing i2c_id/motion_id/one_wire_id that only grouping exposes. A group
+    with a member that already failed alone is skipped, so it cannot blame grouping.
+    """
+    failed_alone = {
+        (r.components[0], r.platform)
+        for r in prior_results
+        if not r.success and len(r.components) == 1
+    }
+    results: list[TestResult] = []
+    for component in sorted(components):
+        platforms = (
+            [ctx.platform_filter]
+            if ctx.platform_filter
+            else sorted(ctx.component_buses.get(component, {}))
         )
+        for platform in platforms:
+            partners = select_shared_id_partners(
+                component, platform, ctx.component_buses, ctx.non_groupable
+            )
+            if not partners:
+                continue
+            partner_csv = ",".join(partners)
+            for base_file in ctx.platform_bases.get(platform, []):
+                platform_with_version = extract_platform_with_version(base_file)
+                group = [component, *partners]
+                if any((m, platform_with_version) in failed_alone for m in group):
+                    continue
+                result = ctx.run_config(
+                    group, platform, platform_with_version, base_file
+                )
+                result.test_id = (
+                    f"SHARED_ID[{component}+{partner_csv}].{platform_with_version}"
+                )
+                result.shared_id_check = True
+                if not result.success:
+                    _print_shared_id_failure(
+                        component, platform_with_version, partner_csv, result.output
+                    )
+                    if not ctx.continue_on_fail:
+                        # Fail fast like the other paths, after the diagnostic
+                        raise subprocess.CalledProcessError(1, result.command)
+                results.append(result)
+    return results
 
 
 def run_grouped_component_tests(
@@ -575,7 +830,12 @@ def run_grouped_component_tests(
     build_dir: Path,
     esphome_command: str,
     continue_on_fail: bool,
+    component_buses: dict[str, dict[str, list[str]]],
+    non_groupable: set[str],
+    direct_bus_components: set[str],
     additional_isolated: set[str] | None = None,
+    toolchain: str | None = None,
+    skip_bootloader: bool = False,
 ) -> tuple[set[tuple[str, str]], list[TestResult]]:
     """Run grouped component tests.
 
@@ -587,6 +847,7 @@ def run_grouped_component_tests(
         build_dir: Path to build directory
         esphome_command: ESPHome command (config/compile)
         continue_on_fail: Whether to continue on failure
+        component_buses, non_groupable, direct_bus_components: analyze_all_components() result
         additional_isolated: Additional components to treat as isolated (not grouped)
 
     Returns:
@@ -600,9 +861,6 @@ def run_grouped_component_tests(
     print("\n" + "=" * 80)
     print("Analyzing components for intelligent grouping...")
     print("=" * 80)
-    component_buses, non_groupable, direct_bus_components = analyze_all_components(
-        tests_dir
-    )
 
     # Track why components can't be grouped (for detailed output)
     non_groupable_reasons = {}
@@ -674,6 +932,13 @@ def run_grouped_component_tests(
     # This allows mixing components with different buses (e.g., ble + uart)
     # as long as they don't have conflicting configurations for the same bus type
     grouped_components = merge_compatible_bus_groups(grouped_components)
+
+    # Split groups that contain components declaring CONFLICTS_WITH each other.
+    # The bus-level merge above only considers shared bus configs; components
+    # with the same bus signature (e.g. both I2C) can still be mutually
+    # incompatible (e.g. bme680_bsec vs. bme68x_bsec2_i2c which auto-loads
+    # bme68x_bsec2). Those must end up in separate builds.
+    grouped_components = split_conflicting_groups(grouped_components)
 
     # Print detailed grouping plan
     print("\nGrouping Plan:")
@@ -764,14 +1029,35 @@ def run_grouped_component_tests(
             if plat == platform and sig != NO_BUSES_SIGNATURE
         ]
 
-        if platform_groups:
-            # Distribute no_buses components round-robin across existing groups
-            for i, comp in enumerate(no_buses_comps):
-                sig, _ = platform_groups[i % len(platform_groups)]
-                grouped_components[(platform, sig)].append(comp)
-        else:
-            # No other groups for this platform - keep no_buses components together
-            grouped_components[(platform, NO_BUSES_SIGNATURE)] = no_buses_comps
+        # Distribute no_buses components round-robin across existing groups,
+        # but never place a component into a group it conflicts with. Conflict
+        # splitting (split_conflicting_groups) may have created sibling groups
+        # like "no_buses__conflict1" precisely to keep incompatible components
+        # apart (e.g. on nRF52, network pulls in openthread which zigbee
+        # conflicts with); redistribution must not silently undo that split.
+        leftover: list[str] = []
+        for i, comp in enumerate(no_buses_comps):
+            placed = False
+            # Try groups starting at the round-robin offset to keep the spread.
+            for offset in range(len(platform_groups)):
+                sig, comps = platform_groups[(i + offset) % len(platform_groups)]
+                if any(components_conflict(comp, other, platform) for other in comps):
+                    continue
+                # comps is the same list object stored in grouped_components, so
+                # this also extends the group in grouped_components.
+                comps.append(comp)
+                placed = True
+                break
+            if not placed:
+                leftover.append(comp)
+
+        if leftover:
+            # Components that conflict with every existing group stay together in
+            # their own no_buses group (they were grouped before, so they don't
+            # conflict with each other).
+            grouped_components.setdefault((platform, NO_BUSES_SIGNATURE), []).extend(
+                leftover
+            )
 
     groups_to_test = []
     individual_tests = set()  # Use set to avoid duplicates
@@ -811,12 +1097,25 @@ def run_grouped_component_tests(
     # With grouping:
     # - 1 build per group (regardless of how many components)
     # - Individual components still need all their platform builds
+    # - Validate files of grouped components still run individually
+    #   (they're config-only and bypass the grouped compile, see
+    #   run_individual_component_test), so each adds one more invocation.
     individual_test_file_count = sum(
         len(all_tests[comp]) for comp in individual_tests if comp in all_tests
     )
 
+    grouped_component_set = {c for _, _, comps in groups_to_test for c in comps}
+    grouped_validate_file_count = sum(
+        1
+        for comp in grouped_component_set
+        for test_file in all_tests.get(comp, [])
+        if is_validate_only_file(test_file)
+    )
+
     total_grouped_components = sum(len(comps) for _, _, comps in groups_to_test)
-    total_builds_with_grouping = len(groups_to_test) + individual_test_file_count
+    total_builds_with_grouping = (
+        len(groups_to_test) + individual_test_file_count + grouped_validate_file_count
+    )
     builds_saved = total_test_files - total_builds_with_grouping
 
     print(f"\n{'=' * 80}")
@@ -829,13 +1128,17 @@ def run_grouped_component_tests(
     print(
         f"  • {individual_test_file_count} individual builds ({len(individual_tests)} components)"
     )
+    if grouped_validate_file_count:
+        print(
+            f"  • {grouped_validate_file_count} validate-only invocations for grouped components"
+        )
     if total_test_files > 0:
         reduction_pct = (builds_saved / total_test_files) * 100
         print(f"  • Saves {builds_saved} builds ({reduction_pct:.1f}% reduction)")
     print("=" * 80 + "\n")
 
     # Execute grouped tests
-    for (platform, signature), components in grouped_components.items():
+    for (platform, _signature), components in grouped_components.items():
         # Only group if we have multiple components with same signature
         if len(components) <= 1:
             continue
@@ -872,6 +1175,8 @@ def run_grouped_component_tests(
                 tests_dir=tests_dir,
                 esphome_command=esphome_command,
                 continue_on_fail=continue_on_fail,
+                toolchain=toolchain,
+                skip_bootloader=skip_bootloader,
             )
 
             # Mark all components as tested
@@ -895,6 +1200,8 @@ def run_individual_component_test(
     continue_on_fail: bool,
     tested_components: set[tuple[str, str]],
     test_results: list[TestResult],
+    toolchain: str | None = None,
+    skip_bootloader: bool = False,
 ) -> None:
     """Run an individual component test if not already tested in a group.
 
@@ -910,8 +1217,13 @@ def run_individual_component_test(
         tested_components: Set of already tested components
         test_results: List to append test results
     """
-    # Skip if already tested in a group
-    if (component, platform_with_version) in tested_components:
+    # Validate files (validate.*.yaml) are config-only and never participate
+    # in compile-time bus grouping, so always run them individually even when
+    # the (component, platform) pair was covered by a group test.
+    if (
+        not is_validate_only_file(test_file)
+        and (component, platform_with_version) in tested_components
+    ):
         return
 
     test_result = run_esphome_test(
@@ -923,6 +1235,8 @@ def run_individual_component_test(
         build_dir=build_dir,
         esphome_command=esphome_command,
         continue_on_fail=continue_on_fail,
+        toolchain=toolchain,
+        skip_bootloader=skip_bootloader,
     )
     test_results.append(test_result)
 
@@ -935,6 +1249,9 @@ def test_components(
     enable_grouping: bool = True,
     isolated_components: set[str] | None = None,
     base_only: bool = False,
+    toolchain: str | None = None,
+    skip_bootloader: bool = False,
+    fail_on_no_tests: bool = False,
 ) -> int:
     """Test components with optional intelligent grouping.
 
@@ -963,16 +1280,38 @@ def test_components(
     # Get platform base files
     platform_bases = get_platform_base_files(build_components_dir)
 
-    # Find all component tests
+    # Validate files (validate.*.yaml) are config-only -- they exercise
+    # schema/validation paths but are never compiled. Include them when running
+    # `config` or `clean`; exclude them under `compile` so they never reach a
+    # toolchain build.
+    include_validate = esphome_command != "compile"
+
+    # A blank pattern list would slide into the reference-baseline
+    # fallback and exit green while building nothing
+    if fail_on_no_tests and not any(component_patterns):
+        print("No components requested (blank component list)")
+        return 1
+
+    # Find all component tests; remember which components each pattern
+    # (wildcards included) matched, for the deferred no-tests accounting
     all_tests = {}
+    pattern_components: dict[str, set[str]] = {}
     for pattern in component_patterns:
         # Skip empty patterns (happens when components list is empty string)
         if not pattern:
             continue
-        all_tests.update(find_component_tests(tests_dir, pattern, base_only))
+        found = find_component_tests(
+            tests_dir, pattern, base_only, include_validate=include_validate
+        )
+        pattern_components[pattern] = set(found)
+        all_tests.update(found)
 
-    # If no components found, build a reference configuration for baseline comparison
-    # Create a synthetic "empty" component test that will build just the base config
+    if fail_on_no_tests and not all_tests:
+        # Nothing matched: fail before the synthetic baseline spends a
+        # compile reporting success on nothing
+        print(f"No components found matching: {component_patterns}")
+        return 1
+
     if not all_tests:
         print(f"No components found matching: {component_patterns}")
         print(
@@ -981,7 +1320,7 @@ def test_components(
 
         # Create empty test files for each platform (or filtered platform)
         reference_tests: list[Path] = []
-        for platform_name, base_file in platform_bases.items():
+        for platform_name in platform_bases:
             if platform_filter and not platform_name.startswith(platform_filter):
                 continue
             # Create an empty test file named to match the platform
@@ -1002,6 +1341,9 @@ def test_components(
 
     # First, run grouped tests if grouping is enabled
     if enable_grouping:
+        component_buses, non_groupable, direct_bus_components = analyze_all_components(
+            tests_dir
+        )
         tested_components, grouped_results = run_grouped_component_tests(
             all_tests=all_tests,
             platform_filter=platform_filter,
@@ -1011,6 +1353,11 @@ def test_components(
             esphome_command=esphome_command,
             continue_on_fail=continue_on_fail,
             additional_isolated=isolated_components,
+            toolchain=toolchain,
+            skip_bootloader=skip_bootloader,
+            component_buses=component_buses,
+            non_groupable=non_groupable,
+            direct_bus_components=direct_bus_components,
         )
         test_results.extend(grouped_results)
 
@@ -1039,6 +1386,8 @@ def test_components(
                             continue_on_fail=continue_on_fail,
                             tested_components=tested_components,
                             test_results=test_results,
+                            toolchain=toolchain,
+                            skip_bootloader=skip_bootloader,
                         )
             else:
                 # Platform-specific test
@@ -1071,7 +1420,45 @@ def test_components(
                         continue_on_fail=continue_on_fail,
                         tested_components=tested_components,
                         test_results=test_results,
+                        toolchain=toolchain,
+                        skip_bootloader=skip_bootloader,
                     )
+
+    # Directly changed tests run isolated, so also check them grouped with partners
+    if enable_grouping and esphome_command == "config" and isolated_components:
+        ctx = SharedIdContext(
+            platform_bases=platform_bases,
+            platform_filter=platform_filter,
+            tests_dir=tests_dir,
+            build_dir=build_dir,
+            component_buses=component_buses,
+            non_groupable=non_groupable,
+            toolchain=toolchain,
+            continue_on_fail=continue_on_fail,
+        )
+        test_results.extend(
+            run_shared_id_tests(
+                ctx, isolated_components & all_tests.keys(), test_results
+            )
+        )
+
+    silent: list[str] = []
+    if fail_on_no_tests:
+        # A green run that built nothing for a requested pattern must not
+        # pass CI. Per pattern so one silent pattern cannot hide behind
+        # the others; opt-in because some legs legitimately match nothing;
+        # deferred past the summary so reproduce commands still print.
+        # Shared-id runs must not count as a build of a requested component
+        built = {c for r in test_results if not r.shared_id_check for c in r.components}
+        # A pattern is silent when it matched no fixture, or when none of
+        # its matched components produced a build (wildcards included)
+        silent = [
+            p
+            for p in component_patterns
+            if p and not (pattern_components.get(p, set()) & built)
+        ]
+        if silent:
+            print(f"No tests ran for requested pattern(s): {', '.join(silent)}")
 
     # Separate results into passed and failed
     passed_results = [r for r in test_results if r.success]
@@ -1091,19 +1478,15 @@ def test_components(
         print("\n" + "=" * 80)
         print("Commands to reproduce failures (copy-paste to reproduce locally):")
         print("=" * 80)
-        platform_components = group_components_by_platform(failed_results)
-        for platform, test_type in sorted(platform_components.keys()):
-            components_csv = ",".join(platform_components[(platform, test_type)])
-            print(
-                f"script/test_build_components.py -c {components_csv} -t {platform} -e {test_type}"
-            )
+        for cmd in reproduce_commands(failed_results, toolchain):
+            print(cmd)
         print()
 
     # Write GitHub Actions job summary if in CI
     if os.environ.get("GITHUB_STEP_SUMMARY"):
-        write_github_summary(test_results)
+        write_github_summary(test_results, toolchain=toolchain)
 
-    if failed_results:
+    if failed_results or silent:
         return 1
 
     return 0
@@ -1154,6 +1537,22 @@ def main() -> int:
         action="store_true",
         help="Only test base test files (test.*.yaml), not variant files (test-*.yaml)",
     )
+    parser.add_argument(
+        "--toolchain",
+        help="Select toolchain for compiling.",
+    )
+    parser.add_argument(
+        "--skip-bootloader",
+        action="store_true",
+        help="Pass --skip-bootloader to esphome compile; component builds "
+        "never flash, and the bootloader is covered by the toolchain jobs",
+    )
+    parser.add_argument(
+        "--fail-on-no-tests",
+        action="store_true",
+        help="Exit non-zero when no test matched (for CI legs whose "
+        "components must all have fixtures)",
+    )
 
     args = parser.parse_args()
 
@@ -1172,7 +1571,10 @@ def main() -> int:
         continue_on_fail=args.continue_on_fail,
         enable_grouping=not args.no_grouping,
         isolated_components=isolated_components,
+        fail_on_no_tests=args.fail_on_no_tests,
         base_only=args.base_only,
+        toolchain=args.toolchain,
+        skip_bootloader=args.skip_bootloader,
     )
 
 

@@ -38,7 +38,7 @@ namespace esphome::logger {
  * - Variable-size messages with header + text stored contiguously (NOSPLIT style)
  * - FreeRTOS mutex protects all buffer operations
  * - Volatile counter enables fast has_messages() without lock overhead
- * - If message doesn't fit at end, padding is added and message wraps to start
+ * - A message that doesn't fit at the end wraps to the start, after a padding marker if a header fits there
  */
 class TaskLogBuffer {
  public:
@@ -59,8 +59,7 @@ class TaskLogBuffer {
   // Valid log levels are 0-7, so 0xFF cannot be a real message
   static constexpr uint8_t PADDING_MARKER_LEVEL = 0xFF;
 
-  // Constructor that takes a total buffer size
-  explicit TaskLogBuffer(size_t total_buffer_size);
+  TaskLogBuffer();
   ~TaskLogBuffer();
 
   // NOT thread-safe - borrow a message from the buffer, only call from main loop
@@ -78,19 +77,24 @@ class TaskLogBuffer {
   inline bool HOT has_messages() const { return this->message_count_ != 0; }
 
   // Get the total buffer size in bytes
-  inline size_t size() const { return this->size_; }
+  static constexpr size_t size() { return CAPACITY; }
 
  private:
-  // Calculate total size needed for a message (header + text + null terminator)
-  static inline size_t message_total_size(size_t text_length) { return sizeof(LogMessage) + text_length + 1; }
+  // Keep headers aligned: BK72xx silently misreads unaligned words instead of faulting
+  static constexpr size_t ALIGNMENT = alignof(LogMessage);
+  static constexpr size_t CAPACITY = ESPHOME_TASK_LOG_BUFFER_SIZE & ~(ALIGNMENT - 1);
+
+  // Header + text + null, rounded up to keep the next header aligned
+  static constexpr size_t message_total_size(size_t text_length) {
+    return (sizeof(LogMessage) + text_length + 1 + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
+  }
 
   // Calculate available contiguous space at write position
-  size_t available_contiguous_space() const;
+  size_t available_contiguous_space_() const;
 
-  uint8_t *storage_{nullptr};  // Pointer to allocated memory
-  size_t size_{0};             // Size of allocated memory
-  size_t head_{0};             // Write position
-  size_t tail_{0};             // Read position
+  alignas(LogMessage) uint8_t storage_[CAPACITY];  // Embedded in Logger (no separate heap allocation)
+  size_t head_{0};                                 // Write position
+  size_t tail_{0};                                 // Read position
 
   SemaphoreHandle_t mutex_{nullptr};    // FreeRTOS mutex for thread safety
   volatile uint16_t message_count_{0};  // Fast check counter (dirty read OK)
