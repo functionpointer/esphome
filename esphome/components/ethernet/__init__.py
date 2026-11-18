@@ -796,14 +796,17 @@ async def _to_code_esp32(var: cg.MockObj, config: ConfigType) -> None:
 
 
 async def _to_code_rp2040(var: cg.MockObj, config: ConfigType) -> None:
-    cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
-    cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
-    cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
-    cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
-    cg.add_optional(var.set_interrupt_pin, config.get(CONF_INTERRUPT_PIN))
-    cg.add_optional(var.set_reset_pin, config.get(CONF_RESET_PIN))
+    if config[CONF_TYPE] != "USB":
+        cg.add(var.set_clk_pin(config[CONF_CLK_PIN]))
+        cg.add(var.set_miso_pin(config[CONF_MISO_PIN]))
+        cg.add(var.set_mosi_pin(config[CONF_MOSI_PIN]))
+        cg.add(var.set_cs_pin(config[CONF_CS_PIN]))
+        cg.add_optional(var.set_interrupt_pin, config.get(CONF_INTERRUPT_PIN))
+        cg.add_optional(var.set_reset_pin, config.get(CONF_RESET_PIN))
 
-    if not USB
+    if config[CONF_TYPE] == "USB":
+        cg.add_define("USE_ETHERNET_USB")
+    else:
         cg.add_define("USE_ETHERNET_SPI")
     cg.add_library(_RP2_SPI_LIBRARIES[config[CONF_TYPE]], None)
 
